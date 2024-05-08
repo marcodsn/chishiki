@@ -1,0 +1,26 @@
+{
+    "redis": {
+        "host": "redis",
+        "port": 6379
+    },
+    "backend": {
+        "host": "0.0.0.0",
+        "port": 7710,
+        "debug": false
+    },
+    "windows": [
+        128,
+        256,
+        512
+    ],
+    "extensions": [
+        ".pdf",
+        ".txt"
+    ],
+    "ml_services": {
+        "use_bge": true,
+        "bge_unload_interval": 300,
+        "use_nougat": true,
+        "nougat_unload_interval": 300
+    }
+}

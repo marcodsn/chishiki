@@ -1,0 +1,45 @@
+services:
+  webui:
+      build:
+        context: webui
+        dockerfile: Dockerfile
+      ports:
+        - "3000:3000"
+      volumes:
+        - ./webui:/app
+        - ./webui/node_modules:/app/node_modules
+        - ./data:/data
+      networks:
+        - backend-network
+      depends_on:
+        - backend
+        - redis
+
+  backend:
+    build:
+      context: backend
+      dockerfile: Dockerfile.cuda
+    ports:
+      - "7710:7710"
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+      - ./cache:/root/.cache
+    depends_on:
+      - redis
+    networks:
+      - backend-network
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+
+  redis:
+    image: redis/redis-stack-server
+    volumes:
+      - ./data/redis-data:/data
+    networks:
+      - backend-network
+
+networks:
+  backend-network:
+    driver: bridge

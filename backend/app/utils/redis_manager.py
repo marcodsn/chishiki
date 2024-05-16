@@ -29,9 +29,6 @@ class RedisManager:
         self.write_threshold = write_threshold
         self.last_save_time = time.time()
         self.write_operations = 0
-        
-        # Set ft search limit to infinite
-        # self.redis_client.config_set("LIMIT", "0", "0")
 
     def create_index(self):
         try:
@@ -58,8 +55,7 @@ class RedisManager:
                     NumericField("end_pos"),
                     NumericField("window_size"),
                 ],
-                # definition=IndexDefinition(),
-                definition=ml_index_definition
+                definition=ml_index_definition,
             )
 
             meta_index_definition = IndexDefinition(
@@ -76,15 +72,24 @@ class RedisManager:
                     TagField("filename"),
                     TagField("ml_synced"),
                     NumericField("size"),
+                    VectorField(
+                        "mean_dense_vector",
+                        "FLAT",
+                        {
+                            "TYPE": "FLOAT32",
+                            "DIM": self.dense_dim,
+                            "DISTANCE_METRIC": "COSINE",
+                        },
+                    ),
                 ],
-                # definition=IndexDefinition(),
-                definition=meta_index_definition
+                definition=meta_index_definition,
             )
             logger.info(
                 f"Indexes '{self.ml_index_name}' and '{self.meta_index_name}' created successfully"
             )
         except Exception as e:
             logger.error(f"Error creating indexes: {str(e)}")
+
 
     def insert_passage(
         self,
@@ -157,32 +162,17 @@ class RedisManager:
             logger.info(f"Metadata for document '{doc_path}' inserted successfully")
         except Exception as e:
             logger.error(f"Error inserting metadata: {str(e)}")
-        # try:
-        #     metadata = {
-        #         "file_hash": file_hash,
-        #         "filename": filename,
-        #         "tags": file_extension,
-        #         "creation_time": creation_time,
-        #         "modification_time": modification_time,
-        #         "ml_synced": "false",
-        #         "size": size,
-        #     }
-        #     self.redis_client.ft(self.meta_index_name).add_document(
-        #         doc_path, replace=True, **metadata
-        #     )
-        #     self._increment_write_operations()
-        #     logger.info(f"Metadata for document '{doc_path}' inserted successfully")
-        # except Exception as e:
-        #     logger.error(f"Error inserting metadata: {str(e)}")
 
-    def search_by_metadata(self, tags=None, path=None, filename=None, size_filter=None, k=1000):
+    def search_by_metadata(
+        self, tags=None, path=None, filename=None, size_filter=None, k=1000
+    ):
         query_parts = []
         if tags:
             query_parts.append(f"@tags:({' | '.join(tags)})")
         if path:
-            query_parts.append(f"@doc_path:{path}")
+            query_parts.append(f"@doc_path:{path}*")
         if filename:
-            query_parts.append(f"@filename:{filename}")
+            query_parts.append(f"@filename:*{filename}")
         if size_filter:
             size_op, size_value = size_filter.split()
             query_parts.append(f"@size:[{size_op} {size_value}]")
@@ -196,7 +186,7 @@ class RedisManager:
         # print("search_by_metadata: query", query)
 
         results = self.redis_client.ft(self.meta_index_name).search(query.paging(0, k))
-        
+
         doc_paths = [doc.id.split(":")[-1] for doc in results.docs]
         unique_doc_paths = list(set(doc_paths))
 
@@ -214,13 +204,11 @@ class RedisManager:
         sparse_weight=None,
         k=30,
     ):
-        print("path", path)
         if tags or path or filename:
             pre_filtered_doc_paths = self.search_by_metadata(tags, path, filename)
         else:
             pre_filtered_doc_paths = None
 
-        print("pre_filtered_doc_paths", pre_filtered_doc_paths)
         dense_results = self._search_dense_vector(
             query_dense_vector, window_size, k, pre_filtered_doc_paths
         )
@@ -288,6 +276,64 @@ class RedisManager:
                 combined_score,
             )
         return combined_results
+
+    def insert_mean_dense_vector(self, doc_path, mean_dense_vector):
+        try:
+            mean_dense_vector_fp32 = mean_dense_vector.astype(np.float32)
+            self.redis_client.hset(
+                f"{self.meta_index_name}:doc:{doc_path}",
+                mapping={
+                    "mean_dense_vector": mean_dense_vector_fp32.tobytes(),
+                },
+            )
+            self._increment_write_operations()
+            logger.info(
+                f"Mean dense vector for document '{doc_path}' inserted successfully"
+            )
+        except Exception as e:
+            logger.error(f"Error inserting mean dense vector: {str(e)}")
+
+    def get_mean_dense_vector(self, doc_path):
+        mean_dense_vector = self.redis_client.hget(
+            f"{self.meta_index_name}:doc:{doc_path}", "mean_dense_vector"
+        )
+        if mean_dense_vector:
+            return np.frombuffer(mean_dense_vector, dtype=np.float32)
+        else:
+            logger.warning(f"Mean dense vector not found for path: {doc_path}")
+            return None
+
+
+    def search_similar_docs(self, mean_dense_vector, k, threshold):
+        # Ensure the mean_dense_vector is a numpy array of type float32
+        mean_dense_vector_fp32 = np.array(mean_dense_vector, dtype=np.float32)
+
+        # Construct the query string for KNN search
+        query_str = f"*=>[KNN {k} @mean_dense_vector $vec_param AS similarity_score]"
+
+        # Create the query object
+        query = (
+            Query(query_str)
+            .return_fields("doc_path", "similarity_score")
+            .sort_by("similarity_score")
+            .dialect(2)
+        )
+
+        # Prepare query parameters
+        query_params = {"vec_param": mean_dense_vector_fp32.tobytes()}
+
+        # Execute the search query
+        results = self.redis_client.ft(self.meta_index_name).search(
+            query, query_params=query_params
+        )
+
+        # Extract the results
+        similar_docs = [
+            {"doc_path": doc.doc_path, "similarity_score": float(doc.similarity_score)}
+            for doc in results.docs
+        ]
+
+        return similar_docs
 
     def save_datastore(self):
         self.redis_client.save()

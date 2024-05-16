@@ -42,7 +42,7 @@ interface FileManagerProviderProps {
 
 export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ children }) => {
   const [fileTree, setFileTree] = useState<FileTree>({});
-  const [currentPath, setCurrentPath] = useState("/");
+  const [currentPath, setCurrentPath] = useState("/data");
 
   useEffect(() => {
     refreshFileTree();
@@ -55,15 +55,17 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ action: "search_by_metadata", metadata: { path: "/" } }),
+        body: JSON.stringify({ action: "search_by_metadata", metadata: { path: "/data" } }),
       });
 
       if (response.ok) {
         const data = await response.json();
+        // console.log(data);
         const newFileTree: FileTree = {};
 
         data.doc_paths.forEach((path: string) => {
-          const parts = path.split("/").slice(1);
+          const parts = path.split("/").slice(2);
+          console.log(parts);
           let currentLevel = newFileTree;
 
           parts.forEach((part, index) => {
@@ -84,7 +86,7 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
 
         const metadataResults = await Promise.all(metadataPromises);
         metadataResults.forEach(({ path, metadata }) => {
-          const parts = path.split("/").slice(1);
+          const parts = path.split("/").slice(2);
           let currentLevel = newFileTree;
 
           parts.forEach((part: any, index: any) => {
@@ -96,13 +98,31 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
           });
         });
 
-        setFileTree(newFileTree);
+        // Sort the keys of the FileTree object alphabetically
+        const sortedFileTree = sortObjectKeys(newFileTree);
+
+        setFileTree(sortedFileTree);
       } else {
         throw new Error("Error fetching file tree");
       }
     } catch (error) {
       console.error("Error fetching file tree:", error);
     }
+  };
+
+  // Helper function to sort the keys of an object alphabetically
+  const sortObjectKeys = (obj: { [key: string]: any }): { [key: string]: any } => {
+    const sortedObj: { [key: string]: any } = {};
+    const keys = Object.keys(obj).sort();
+
+    for (const key of keys) {
+      sortedObj[key] = {
+        ...obj[key],
+        children: sortObjectKeys(obj[key].children),
+      };
+    }
+
+    return sortedObj;
   };
 
   const uploadFile = async (file: File) => {

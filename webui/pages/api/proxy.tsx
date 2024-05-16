@@ -36,7 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         break;
 
       case 'POST':
-        if (body.action === 'search') {
+        if (body.action === 'ml_search') {
           response = await fetch(`${BACKEND_URL}/search`, {
             method: 'POST',
             body: JSON.stringify(body),
@@ -86,6 +86,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         } else if (body.action === 'save_datastore') {
           response = await fetch(`${BACKEND_URL}/save_datastore`, {
             method: 'POST',
+          });
+        } else if (body.action === 'search_similar_docs') {
+          response = await fetch(`${BACKEND_URL}/search_similar_docs`, {
+            method: 'POST',
+            body: JSON.stringify(body),
+            headers: {
+              'Content-Type': 'application/json',
+            },
           });
         } else {
           throw new Error('Invalid POST action');

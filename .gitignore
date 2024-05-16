@@ -29,6 +29,7 @@ out/
 node_modules/
 .pnp
 .pnp.js
+!lib/utils.ts
 
 # Miscellaneous
 .DS_Store

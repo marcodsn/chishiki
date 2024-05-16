@@ -15,12 +15,18 @@
     ],
     "extensions": [
         ".pdf",
-        ".txt"
+        ".txt",
+        ".wav",
+        ".mp3",
+        ".ogg",
+        ".mp4"
     ],
     "ml_services": {
         "use_bge": true,
         "bge_unload_interval": 300,
         "use_nougat": true,
-        "nougat_unload_interval": 300
+        "nougat_unload_interval": 300,
+        "use_asr": true,
+        "asr_unload_interval": 300
     }
 }

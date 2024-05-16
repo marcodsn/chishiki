@@ -111,10 +111,20 @@ def sync_on_boot(docs_path):
                 )
 
     # Save the datastore
-    response = requests.post(
-        f"http://{config.config['backend']['host']}:{config.config['backend']['port']}/save_datastore"
-    )
-    if response.status_code == 200:
-        print("Datastore saved successfully.")
-    else:
-        print(f"Error saving datastore: {response.json()}")
+    # response = requests.post(
+    #     f"http://{config.config['backend']['host']}:{config.config['backend']['port']}/save_datastore"
+    # )
+    # if response.status_code == 200:
+    #     print("Datastore saved successfully.")
+    # else:
+    #     print(f"Error saving datastore: {response.json()}")
+    try:
+        response = requests.post(
+            f"http://{config.config['backend']['host']}:{config.config['backend']['port']}/save_datastore"
+        )
+        if response.status_code == 200:
+            print("Datastore saved successfully.")
+        else:
+            print(f"Error saving datastore: {response.json()}")
+    except Exception as e:
+        print(f"Error saving datastore: {e}")

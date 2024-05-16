@@ -29,6 +29,8 @@ services:
       - redis
     networks:
       - backend-network
+    environment:
+      - HF_AUTH_TOKEN=${HF_AUTH_TOKEN}
 
   redis:
     image: redis/redis-stack-server

@@ -3,7 +3,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { FolderIcon, FileIcon, FileText, FileJson, UploadCloud, Plus, Download, RefreshCw, Trash2 } from "lucide-react";
 import { useFileManager } from "@/contexts/FileManagerContext";
-import { formatBytes, formatDate } from "@/lib/utils";
+import { formatBytes, formatDate, openFile, openFileText, downloadFile } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -52,7 +52,7 @@ export const FileManager: React.FC = () => {
   };
 
   const handleGoBack = () => {
-    if (currentPath !== "/") {
+    if (currentPath !== "/data") {
       const parentPath = currentPath.substring(0, currentPath.lastIndexOf("/"));
       setCurrentPath(parentPath);
     }
@@ -88,66 +88,6 @@ export const FileManager: React.FC = () => {
     setConfirmDeletePath(null);
   };
 
-  const openFile = (docPath: string) => {
-    docPath = docPath.substring(1); // Remove leading slash
-    setLoadingFiles((prevState) => ({ ...prevState, [docPath]: true }));
-
-    fetch(`/api/proxy?doc_path=${encodeURIComponent(docPath)}&action=download_file`, {
-      method: 'GET',
-    })
-      .then((response) => {
-        if (response.ok) {
-          return response.blob();
-        }
-        throw new Error('Network response was not ok.');
-      })
-      .then((blob) => {
-        const fileExtension = docPath.split('.').pop()?.toLowerCase();
-        let mimeType = 'application/octet-stream';
-
-        if (fileExtension === 'pdf') {
-          mimeType = 'application/pdf';
-        } else if (fileExtension === 'txt') {
-          mimeType = 'text/plain';
-        } else if (fileExtension === 'jpg' || fileExtension === 'jpeg') {
-          mimeType = 'image/jpeg';
-        } else if (fileExtension === 'png') {
-          mimeType = 'image/png';
-        }
-
-        const url = window.URL.createObjectURL(new Blob([blob], { type: mimeType }));
-        const fileName = docPath.split('/').pop() || '';
-        window.open(url, fileName);
-      })
-      .catch((error) => {
-        console.error('There has been a problem with your fetch operation:', error);
-      })
-      .finally(() => {
-        setLoadingFiles((prevState) => ({ ...prevState, [docPath]: false }));
-      });
-  };
-
-  const openFileText = (docPath: string) => {
-    docPath = docPath.substring(1); // Remove leading slash
-    fetch(`/api/proxy?action=get_doc_text&doc_path=${encodeURIComponent(docPath)}`, {
-      method: 'GET',
-    })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data.doc_text) {
-          const blob = new Blob([data.doc_text], { type: 'text/plain;charset=utf-8' });
-          const url = window.URL.createObjectURL(blob);
-          window.open(url, '_blank'); // Open the text in a new tab
-          window.URL.revokeObjectURL(url); // Clean up the blob URL
-        } else {
-          throw new Error('Document text not found');
-        }
-      })
-      .catch((error) => {
-        console.error('There has been a problem with your fetch operation:', error);
-      });
-  };
-
   const getFileIcon = (filename: string) => {
     const extension = filename.split('.').pop()?.toLowerCase();
     switch (extension) {
@@ -162,19 +102,15 @@ export const FileManager: React.FC = () => {
   };
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
+    <div className="py-6">
+      <div className="flex items-center justify-between mb-6">
         <div className="flex space-x-2">
-          <Button size="icon" onClick={handleUploadClick}>
-            <Plus className="h-[1.2rem] w-[1.2rem]" />
-            <span className="sr-only">Upload</span>
-          </Button>
-          <Button variant="ghost" size="icon">
-            <UploadCloud className="h-[1.2rem] w-[1.2rem]" />
-            <span className="sr-only">Upload</span>
+          <Button onClick={handleUploadClick}>
+            <UploadCloud className="h-[1rem] w-[1rem]" />
+            <span className="ml-2">Upload</span>
           </Button>
           <Button variant="ghost" size="icon" onClick={refreshFileTree}>
-            <RefreshCw className="h-[1.2rem] w-[1.2rem]" />
+            <RefreshCw className="h-[1rem] w-[1rem]" />
             <span className="sr-only">Refresh</span>
           </Button>
         </div>
@@ -185,79 +121,86 @@ export const FileManager: React.FC = () => {
           onChange={handleFileUpload}
         />
       </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Size</TableHead>
-            <TableHead>Last Modified</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {currentPath !== "/" && (
-            <TableRow>
-              <TableCell colSpan={4}>
-                <h4 className="text-sm font-semibold cursor-pointer hover:underline" onClick={handleGoBack}>
-                  ..
-                </h4>
-              </TableCell>
+      {/* <Table className="border border-separate border-tools-table-outline rounded-md"> */}
+      <div className="overflow-x-auto rounded-md border">
+        <Table className="">
+          <TableHeader className="bg-muted/50">  {/* or bg-muted/50 */}
+            <TableRow className="">
+              <TableHead className="w-1/2">Name</TableHead>
+              <TableHead className="">Size</TableHead>
+              <TableHead className="">Last Modified</TableHead>
+              <TableHead className="">Actions</TableHead>
             </TableRow>
-          )}
-          {getFilesAndDirs(currentPath).map((file) => (
-            <TableRow key={file.name}>
-              <TableCell>
-                <div className="flex items-center space-x-2">
-                  {file.type === "directory" ? (
-                    <h4
-                      className="text-sm font-medium cursor-pointer hover:underline"
-                      onClick={() => handleDirClick(file.name)}
-                    >
-                      <FolderIcon className="inline-block mr-2 h-[1.2rem] w-[1.2rem]" />
-                      {file.name}
-                    </h4>
-                  ) : (
-                    <h4 className="text-sm font-medium cursor-pointer hover:underline" onClick={() => openFile(`${currentPath}/${file.name}`)}>
-                      {getFileIcon(file.name)}
-                      {file.name}
-                    </h4>
-                  )}
-                  {loadingFiles[`${currentPath}/${file.name}`.substring(1)] && (
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-foreground border-t-transparent"></div>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell>{file.metadata?.size ? formatBytes(file.metadata.size) : "-"}</TableCell>
-              <TableCell>{file.metadata?.modification_time ? formatDate(file.metadata.modification_time) : "-"}</TableCell>
-              <TableCell>
-                <div className="flex space-x-2">
-                  {file.type === "file" && (
-                    <Button variant="ghost" size="sm" className="w-9 p-0" onClick={() => openFileText(`${currentPath}/${file.name}`)}>
-                      <FileText className="h-4 w-4" />
-                      <span className="sr-only">Open Text</span>
-                    </Button>
-                  )}
-                  <Button variant="ghost" size="sm" className="w-9 p-0">
-                    <Download className="h-4 w-4" />
-                    <span className="sr-only">Download</span>
-                  </Button>
-                  {file.type === "file" && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-9 p-0"
-                      onClick={() => handleDeleteFile(`${currentPath}/${file.name}`)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      <span className="sr-only">Delete</span>
-                    </Button>
-                  )}
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {currentPath !== "/data" && (
+              <TableRow>
+                <TableCell colSpan={4}>
+                  <h4 className="text-sm font-semibold cursor-pointer hover:underline" onClick={handleGoBack}>
+                    <FolderIcon className="inline-block mr-2 h-[1.2rem] w-[1.2rem] fill-foreground" />
+                    ..
+                  </h4>
+                </TableCell>
+              </TableRow>
+            )}
+            {getFilesAndDirs(currentPath).map((file) => (
+              <TableRow key={file.name}>
+                <TableCell>
+                  <div className="flex items-center space-x-2">
+                    {file.type === "directory" ? (
+                      <h4
+                        className="text-sm font-medium cursor-pointer hover:underline"
+                        onClick={() => handleDirClick(file.name)}
+                      >
+                        <FolderIcon className="inline-block mr-2 h-[1.2rem] w-[1.2rem] fill-foreground" />
+                        {file.name}
+                      </h4>
+                    ) : (
+                      <h4 className="text-sm font-medium cursor-pointer hover:underline" onClick={() => openFile(`${currentPath}/${file.name}`, (loading) => setLoadingFiles((prevState) => ({ ...prevState, [`${currentPath}/${file.name}`]: loading })))}>
+                        {getFileIcon(file.name)}
+                        {file.name}
+                      </h4>
+                    )}
+                    {loadingFiles[`${currentPath}/${file.name}`] && (
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-foreground border-t-transparent"></div>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>{file.metadata?.size ? formatBytes(file.metadata.size) : "-"}</TableCell>
+                <TableCell>{file.metadata?.modification_time ? formatDate(file.metadata.modification_time) : "-"}</TableCell>
+                <TableCell>
+                  <div className="flex space-x-2">
+                    {file.type === "file" && (
+                      <Button variant="ghost" size="sm" className="w-9 p-0" onClick={() => openFileText(`${currentPath}/${file.name}`)}>
+                        <FileText className="h-4 w-4" />
+                        <span className="sr-only">Open Text</span>
+                      </Button>
+                    )}
+
+                    {file.type === "file" && (
+                      <Button variant="ghost" size="sm" className="w-9 p-0" onClick={() => downloadFile(`${currentPath}/${file.name}`)}>
+                        <Download className="h-4 w-4" />
+                        <span className="sr-only">Download</span>
+                      </Button>
+                    )}
+                    {file.type === "file" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-9 p-0 hidden"
+                        onClick={() => handleDeleteFile(`${currentPath}/${file.name}`)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        <span className="sr-only">Delete</span>
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
 
       <Dialog open={confirmDeletePath !== null} onOpenChange={handleCancelDelete}>
         <DialogContent className="sm:max-w-[425px]">

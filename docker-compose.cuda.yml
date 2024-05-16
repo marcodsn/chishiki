@@ -32,6 +32,7 @@ services:
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      - HF_AUTH_TOKEN=${HF_AUTH_TOKEN}
 
   redis:
     image: redis/redis-stack-server

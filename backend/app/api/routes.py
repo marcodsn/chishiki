@@ -1,11 +1,13 @@
 import os
 import time
 import hashlib
+import numpy as np
 from flask import Blueprint, request, jsonify, send_file
 import torch
 from app.utils.redis_manager import RedisManager
 from app.models.bge import BGEModel
 from app.models.nougat import Nougat
+from app.models.asr import ASRModel
 from app.utils.misc import passages_generator
 from app.utils.docs2text import extractors
 from config import config
@@ -25,6 +27,11 @@ last_model_use_time = 0
 nougat = None
 last_nougat_use_time = 0
 
+asr_model = None
+last_asr_use_time = 0
+
+MODEL_TIMEOUT = 600  # Unload models after 10 minutes of inactivity
+
 
 def load_model():
     global model, tokenizer, last_model_use_time
@@ -41,10 +48,38 @@ def load_nougat():
         last_nougat_use_time = time.time()
 
 
+def load_asr_model():
+    global asr_model, last_asr_use_time
+    if config.config["ml_services"]["use_asr"]:
+        asr_model = ASRModel()
+        last_asr_use_time = time.time()
+
+
 def unload_model():
     global model, tokenizer
     model = None
     tokenizer = None
+
+
+def unload_nougat():
+    global nougat
+    nougat = None
+
+
+def unload_asr_model():
+    global asr_model
+    asr_model = None
+
+
+def auto_unload_models():
+    global last_model_use_time, last_nougat_use_time, last_asr_use_time
+    current_time = time.time()
+    if model and current_time - last_model_use_time > MODEL_TIMEOUT:
+        unload_model()
+    if nougat and current_time - last_nougat_use_time > MODEL_TIMEOUT:
+        unload_nougat()
+    if asr_model and current_time - last_asr_use_time > MODEL_TIMEOUT:
+        unload_asr_model()
 
 
 def generate_passage_id(dense_vector, doc_path):
@@ -79,6 +114,7 @@ def save_datastore():
 
 @api_routes.route("/insert_passage", methods=["POST"])
 def insert_passage():
+    auto_unload_models()
     data = request.get_json()
     doc_path = data["doc_path"]
     start_pos = data["start_pos"]
@@ -96,6 +132,10 @@ def insert_passage():
             ),
             500,
         )
+
+    # Update the last usage time
+    global last_model_use_time
+    last_model_use_time = time.time()
 
     text = redis_manager.get_doc_text(doc_path)[start_pos:end_pos]
     tokenized = tokenizer(text, return_tensors="pt")
@@ -124,6 +164,7 @@ def insert_passage():
 
 @api_routes.route("/insert_documents", methods=["POST"])
 def insert_documents():
+    auto_unload_models()
     data = request.get_json()
     doc_paths = data["doc_paths"]
     window_sizes = data.get("window_sizes", [512])
@@ -159,6 +200,8 @@ def insert_documents():
             continue
         if nougat is None:
             load_nougat()
+        if asr_model is None:
+            load_asr_model()
 
         if doc_path.split(".")[-1] not in extractors:
             redis_manager.update_doc_ml_synced(doc_path, "false")
@@ -167,10 +210,14 @@ def insert_documents():
 
         if nougat and doc_path.split(".")[-1] == "pdf":
             text = extractors[doc_path.split(".")[-1]](doc_path, nougat)
+        elif asr_model and doc_path.split(".")[-1] in ["wav", "mp3", "ogg", "mp4"]:
+            text = extractors[doc_path.split(".")[-1]](doc_path, asr_model)
         else:
             text = extractors[doc_path.split(".")[-1]](doc_path)
 
         redis_manager.set_doc_text(doc_path, text)
+
+        all_dense_vectors = []
 
         for window_size in window_sizes:
             passage_generator = passages_generator(
@@ -190,6 +237,7 @@ def insert_documents():
                         encoding["dense_vecs"][0],
                         encoding["lexical_weights"][0],
                     )
+                all_dense_vectors.append(dense_vector)
                 passage_id = generate_passage_id(dense_vector, doc_path)
                 redis_manager.insert_passage(
                     passage_id,
@@ -203,6 +251,9 @@ def insert_documents():
                     window_size,
                 )
 
+        mean_dense_vector = np.mean(all_dense_vectors, axis=0)
+        redis_manager.insert_mean_dense_vector(doc_path, mean_dense_vector)
+
         redis_manager.update_doc_ml_synced(doc_path, "true")
 
     return jsonify({"message": "Documents inserted successfully"})
@@ -210,6 +261,7 @@ def insert_documents():
 
 @api_routes.route("/search", methods=["POST"])
 def search():
+    auto_unload_models()
     data = request.get_json()
 
     if "query" not in data:
@@ -234,6 +286,10 @@ def search():
             ),
             500,
         )
+
+    # Update the last usage time
+    global last_model_use_time
+    last_model_use_time = time.time()
 
     tokenized = tokenizer(query, return_tensors="pt")
     query_ids, query_mask = tokenized["input_ids"][0], tokenized["attention_mask"][0]
@@ -274,11 +330,37 @@ def search():
             }
         )
 
+    # filter only passages with path in the doc_path, remove after fixing metadata_search
+    if path:
+        passages = [
+            passage for passage in passages if passage["doc_path"].startswith(path)
+        ]
+
     return jsonify({"passages": passages})
+
+
+@api_routes.route("/search_similar_docs", methods=["POST"])
+def search_similar_docs():
+    auto_unload_models()
+    data = request.get_json()
+    doc_path = data["doc_path"]
+    k = data.get("k", 10)
+    threshold = data.get("threshold", 0.3)
+
+    mean_dense_vector = redis_manager.get_mean_dense_vector(doc_path)
+    if mean_dense_vector is None:
+        return (
+            jsonify({"error": "Mean dense vector not found for the given document"}),
+            404,
+        )
+
+    similar_docs = redis_manager.search_similar_docs(mean_dense_vector, k, threshold)
+    return jsonify({"similar_docs": similar_docs})
 
 
 @api_routes.route("/get_doc_text", methods=["GET"])
 def get_doc_text():
+    auto_unload_models()
     doc_path = request.args.get("doc_path")
     doc_text = redis_manager.get_doc_text(doc_path)
     if doc_text:
@@ -289,6 +371,7 @@ def get_doc_text():
 
 @api_routes.route("/get_ml_synced", methods=["GET"])
 def get_ml_synced():
+    auto_unload_models()
     doc_path = request.args.get("doc_path")
     ml_synced = redis_manager.get_doc_ml_synced(doc_path)
     if ml_synced:
@@ -299,6 +382,7 @@ def get_ml_synced():
 
 @api_routes.route("/get_doc_metadata", methods=["GET"])
 def get_doc_metadata():
+    auto_unload_models()
     doc_path = request.args.get("doc_path")
     doc_metadata = redis_manager.get_doc_metadata(doc_path)
     if doc_metadata:
@@ -309,6 +393,7 @@ def get_doc_metadata():
 
 @api_routes.route("/search_by_metadata", methods=["POST"])
 def search_by_metadata():
+    auto_unload_models()
     data = request.get_json()
     tags = data.get("tags", [])
     path = data.get("path", None)
@@ -323,6 +408,7 @@ def search_by_metadata():
 
 @api_routes.route("/delete_doc", methods=["POST"])
 def delete_doc():
+    auto_unload_models()
     data = request.get_json()
     doc_path = data["doc_path"]
     redis_manager.delete_doc(doc_path)
@@ -331,6 +417,7 @@ def delete_doc():
 
 @api_routes.route("/upload_file", methods=["POST"])
 def upload_file():
+    auto_unload_models()
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
@@ -347,6 +434,7 @@ def upload_file():
 
 @api_routes.route("/download_file", methods=["GET"])
 def download_file():
+    auto_unload_models()
     doc_path = request.args.get("doc_path")
     if not os.path.isfile(doc_path):
         return jsonify({"error": "File not found"}), 404

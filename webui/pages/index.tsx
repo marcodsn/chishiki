@@ -10,6 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import Logo from '@/components/logo';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsProvider, useSettings } from '@/contexts/SettingsContext';
+import { SearchResultSkeleton } from '@/components/search-skeleton';
 
 interface SearchResult {
   text: string;
@@ -22,6 +23,7 @@ interface State {
   results: SearchResult[];
   timeTaken: number | null;
   activeScreen: string;
+  isSearching: boolean;
 }
 
 const initialState: State = {
@@ -29,6 +31,7 @@ const initialState: State = {
   results: [],
   timeTaken: null,
   activeScreen: 'file_manager',
+  isSearching: false,
 };
 
 function reducer(state: State, action: any): State {
@@ -39,6 +42,8 @@ function reducer(state: State, action: any): State {
       return { ...state, results: action.results, timeTaken: action.timeTaken };
     case 'SWITCH_SCREEN':
       return { ...state, activeScreen: action.screen };
+    case 'SET_IS_SEARCHING':
+      return { ...state, isSearching: action.isSearching };
     default:
       return state;
   }
@@ -53,6 +58,7 @@ function HomeContent() {
     e.preventDefault();
 
     try {
+      dispatch({ type: 'SET_IS_SEARCHING', isSearching: true });
       const startTime = performance.now();
 
       // Automatically switch to the 'ml_search' screen when search is initiated
@@ -71,6 +77,7 @@ function HomeContent() {
           k: settingsState.k,
           dense_weight: settingsState.denseWeight,
           sparse_weight: 1 - settingsState.denseWeight,
+          tags: settingsState.tags,
           path: currentPath,
         }),
       });
@@ -81,8 +88,10 @@ function HomeContent() {
       if (response.ok) {
         console.log('Search results fetched successfully');
         const data = await response.json();
+        // console.log('doc paths:', data.passages.map(({ doc_path }: any) => doc_path));
 
         if (Array.isArray(data.passages)) {
+          dispatch({ type: 'SET_IS_SEARCHING', isSearching: false });
           dispatch({
             type: 'SET_RESULTS',
             results: data.passages.map(({ text, doc_path, scores }: any) => ({
@@ -101,6 +110,7 @@ function HomeContent() {
       }
     } catch (error) {
       console.error('Error fetching search results:', error);
+      dispatch({ type: 'SET_IS_SEARCHING', isSearching: false });
     }
   }, [state.query, state.activeScreen, settingsState]);
 
@@ -149,20 +159,23 @@ function HomeContent() {
         </div>
         <div className="flex w-full h-full overflow-hidden">
           <div className="hidden md:block">
-            <Sidebar onScreenChange={handleScreenChange} activeScreen={state.activeScreen} />
+            <Sidebar onScreenChange={handleScreenChange} activeScreen={state.activeScreen} handleSearch={handleSearch} />
           </div>
           <div className="flex flex-col w-full">
             {state.activeScreen === 'ml_search' && (
-              // <div className="flex flex-col w-full py-6 px-4">
               <ScrollArea className="max-h-full px-6">
-                <SearchResults
-                  results={state.results}
-                  timeTaken={state.timeTaken}
-                  query={state.query}
-                  highlightQuery={settingsState.highlightQuery}
-                />
+                {state.isSearching ? (
+                  <SearchResultSkeleton />
+                ) : (
+                  <SearchResults
+                    results={state.results}
+                    timeTaken={state.timeTaken}
+                    query={state.query}
+                    highlightQuery={settingsState.highlightQuery}
+                    className="max-w-6xl mx-auto"
+                  />
+                )}
               </ScrollArea>
-              // </div>
             )}
             {state.activeScreen === 'file_manager' && (
               <ScrollArea className="max-h-full px-6">

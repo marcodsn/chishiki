@@ -5,6 +5,7 @@ interface SettingsState {
   k: number;
   denseWeight: number;
   highlightQuery: boolean;
+  tags: string[];
 }
 
 interface SettingsContextProps {
@@ -17,6 +18,7 @@ const initialState: SettingsState = {
   k: 30,
   denseWeight: 0.7,
   highlightQuery: false,
+  tags: [],
 };
 
 const SettingsContext = createContext<SettingsContextProps | undefined>(undefined);
@@ -25,6 +27,10 @@ function settingsReducer(state: SettingsState, action: any): SettingsState {
   switch (action.type) {
     case 'SET_FIELD':
       return { ...state, [action.field]: action.value };
+    case 'ADD_TAG':
+      return { ...state, tags: [...state.tags, action.tag] };
+    case 'REMOVE_TAG':
+      return { ...state, tags: state.tags.filter(tag => tag !== action.tag) };
     default:
       return state;
   }

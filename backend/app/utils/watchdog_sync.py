@@ -43,7 +43,7 @@ class DocumentWatchdog(FileSystemEventHandler):
 
     def delete_document(self, doc_path):
         response = requests.post(
-            f"http://{config.config['backend']['host']}:{config.config['backend']['port']}/delete_document",
+            f"http://{config.config['backend']['host']}:{config.config['backend']['port']}/delete_documents",
             json={"doc_path": doc_path},
         )
         if response.status_code == 200:

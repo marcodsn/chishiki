@@ -30,6 +30,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           response = await fetch(`${BACKEND_URL}/get_doc_metadata?doc_path=${encodeURIComponent(query.doc_path as string)}`, {
             method: 'GET',
           });
+        } else if (query.action === 'get_doc_tags') {
+          response = await fetch(`${BACKEND_URL}/get_doc_tags?doc_path=${encodeURIComponent(query.doc_path as string)}`, {
+            method: 'GET',
+          });
         } else {
           throw new Error('Invalid GET action');
         }
@@ -89,6 +93,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           });
         } else if (body.action === 'search_similar_docs') {
           response = await fetch(`${BACKEND_URL}/search_similar_docs`, {
+            method: 'POST',
+            body: JSON.stringify(body),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+        } else if (body.action === 'update_doc_tags') {
+          response = await fetch(`${BACKEND_URL}/update_doc_tags`, {
+            method: 'POST',
+            body: JSON.stringify(body),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+        } else if (body.action === 'add_doc_tags') {
+          response = await fetch(`${BACKEND_URL}/add_doc_tags`, {
+            method: 'POST',
+            body: JSON.stringify(body),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+        } else if (body.action === 'remove_doc_tags') {
+          response = await fetch(`${BACKEND_URL}/remove_doc_tags`, {
+            method: 'POST',
+            body: JSON.stringify(body),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+        } else if (body.action === 'update_ml_synced') {
+          response = await fetch(`${BACKEND_URL}/update_ml_synced`, {
             method: 'POST',
             body: JSON.stringify(body),
             headers: {

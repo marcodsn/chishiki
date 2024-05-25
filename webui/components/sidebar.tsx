@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { SettingsIcon, X, FolderIcon, BrainCogIcon } from 'lucide-react';
+import { SettingsIcon, X, FolderIcon, BrainCogIcon, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -26,11 +26,13 @@ const fontSans = FontSans({
 interface SidebarProps {
   onScreenChange: (screen: string) => void;
   activeScreen: string;
+  handleSearch: (e: React.FormEvent) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onScreenChange, activeScreen }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onScreenChange, activeScreen, handleSearch }) => {
   const { state, dispatch } = useSettings();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [newTag, setNewTag] = useState<string>('');
 
   const blur = (event: React.MouseEvent<HTMLButtonElement>) => event.currentTarget.blur();
 
@@ -44,6 +46,36 @@ const Sidebar: React.FC<SidebarProps> = ({ onScreenChange, activeScreen }) => {
   };
 
   const isActiveScreen = (section: string) => activeScreen === section;
+
+  const handleAddTag = () => {
+    if (newTag.trim() !== '') {
+      dispatch({ type: 'ADD_TAG', tag: newTag.trim() });
+      setNewTag('');
+    }
+  };
+
+  const handleRemoveTag = (tag: string) => {
+    dispatch({ type: 'REMOVE_TAG', tag });
+  };
+
+  const handleFormSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    handleAddTag();
+  };
+
+  const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleAddTag();
+    }
+  };
+
+  const handleInputKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleSearch(event as unknown as React.FormEvent); // Call handleSearch on Enter key press
+    }
+  };
 
   return (
     <TooltipProvider>
@@ -113,7 +145,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onScreenChange, activeScreen }) => {
                   </Button>
                 </div>
                 {expandedSection === 'settings' && (
-                  <form className="grid w-full items-start gap-6 overflow-auto">
+                  <form className="grid w-full items-start gap-6 overflow-auto" onSubmit={handleFormSubmit}>
                     <fieldset className="grid gap-6 rounded-lg border p-4 bg-muted/40">
                       <legend className="-ml-1 px-1 text-sm font-medium">
                         ML Search
@@ -138,6 +170,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onScreenChange, activeScreen }) => {
                           type="number"
                           value={state.k}
                           onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'k', value: Number(e.target.value) })}
+                          onKeyDown={handleInputKeyPress}
                         />
                       </div>
                       <div className="grid gap-3">
@@ -148,6 +181,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onScreenChange, activeScreen }) => {
                           step="0.1"
                           value={state.denseWeight}
                           onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'denseWeight', value: Number(e.target.value) })}
+                          onKeyDown={handleInputKeyPress}
                         />
                       </div>
                       <div className="flex gap-3">
@@ -158,14 +192,45 @@ const Sidebar: React.FC<SidebarProps> = ({ onScreenChange, activeScreen }) => {
                         />
                       </div>
                     </fieldset>
-                    {/* <fieldset className="grid gap-6 rounded-lg border p-4">
+                    <fieldset className="grid gap-0 rounded-lg border p-4 bg-muted/40">
                       <legend className="-ml-1 px-1 text-sm font-medium">
                         Metadata Filters
                       </legend>
-                      <div className="grid gap-3">
-                        <p>Metadata search settings will go here.</p>
+                      <div className="flex gap-3 mb-3">
+                        <Input
+                          id="newTag"
+                          type="text"
+                          value={newTag}
+                          onChange={(e) => setNewTag(e.target.value)}
+                          onKeyDown={handleKeyPress}
+                          placeholder="Add a tag"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="rounded-lg"
+                          onClick={handleAddTag}
+                          type="button" // Ensure this button does not submit the form
+                        >
+                          <Plus className="h-[1.2rem] w-[1.2rem]" />
+                        </Button>
                       </div>
-                    </fieldset> */}
+                      <div className="grid gap-3">
+                        {state.tags && state.tags.map((tag, index) => (
+                          <div key={index} className="flex justify-between items-center p-2 py-1 border rounded-lg bg-muted/20">
+                            <span className='text-sm'>{tag}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="rounded-lg hover:bg-transparent"
+                              onClick={() => handleRemoveTag(tag)}
+                            >
+                              <X className="h-[1rem] w-[1rem]" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </fieldset>
                   </form>
                 )}
               </div>

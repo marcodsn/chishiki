@@ -1,8 +1,9 @@
 import time
+import re
 import numpy as np
 from redis import Redis
-from redis.commands.search.field import VectorField, TagField, NumericField
-from redis.commands.search.query import Query, Filter
+from redis.commands.search.field import VectorField, TagField, NumericField, TextField
+from redis.commands.search.query import Query
 from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 import logging
 
@@ -32,11 +33,8 @@ class RedisManager:
 
     def create_index(self):
         try:
-            # Define the index for ML data with a specific key pattern
             ml_index_definition = IndexDefinition(
-                prefix=[
-                    f"{self.ml_index_name}:passage:"
-                ],  # Only index keys that start with this prefix
+                prefix=[f"{self.ml_index_name}:passage:"],
                 index_type=IndexType.HASH,
             )
             self.redis_client.ft(self.ml_index_name).create_index(
@@ -50,7 +48,7 @@ class RedisManager:
                             "DISTANCE_METRIC": "COSINE",
                         },
                     ),
-                    TagField("doc_path"),
+                    TextField("doc_path"),
                     NumericField("start_pos"),
                     NumericField("end_pos"),
                     NumericField("window_size"),
@@ -59,17 +57,15 @@ class RedisManager:
             )
 
             meta_index_definition = IndexDefinition(
-                prefix=[
-                    f"{self.meta_index_name}:doc:"
-                ],  # Only index keys that start with this prefix
+                prefix=[f"{self.meta_index_name}:doc:"],
                 index_type=IndexType.HASH,
             )
             self.redis_client.ft(self.meta_index_name).create_index(
                 [
                     TagField("tags"),
-                    TagField("doc_path"),
+                    TextField("doc_path"),
                     TagField("file_hash"),
-                    TagField("filename"),
+                    TextField("filename"),
                     TagField("ml_synced"),
                     NumericField("size"),
                     VectorField(
@@ -90,7 +86,6 @@ class RedisManager:
         except Exception as e:
             logger.error(f"Error creating indexes: {str(e)}")
 
-
     def insert_passage(
         self,
         passage_id,
@@ -105,12 +100,13 @@ class RedisManager:
     ):
         try:
             dense_vector_fp32 = dense_vector.astype(np.float32)
+            doc_path_ml = doc_path.replace(".", "_.")
 
             self.redis_client.hset(
                 f"{self.ml_index_name}:passage:{passage_id}",
                 mapping={
                     "dense_vector": dense_vector_fp32.tobytes(),
-                    "doc_path": doc_path,
+                    "doc_path": doc_path_ml,
                     "start_pos": start_pos,
                     "end_pos": end_pos,
                     "window_size": window_size,
@@ -168,29 +164,29 @@ class RedisManager:
     ):
         query_parts = []
         if tags:
-            query_parts.append(f"@tags:({' | '.join(tags)})")
+            query_parts.append(f"@tags:{{{'|'.join(tags)}}}")
         if path:
             query_parts.append(f"@doc_path:{path}*")
         if filename:
-            query_parts.append(f"@filename:*{filename}")
+            query_parts.append(f"@filename:*{filename}*")
         if size_filter:
             size_op, size_value = size_filter.split()
             query_parts.append(f"@size:[{size_op} {size_value}]")
 
-        if query_parts:
-            query = Query(" ".join(query_parts))
-        else:
-            query = Query("*")
+        query_str = " ".join(query_parts) if query_parts else "*"
+        query = Query(query_str).paging(0, k)
 
-        # print(self.redis_client.ft(self.meta_index_name).info())
-        # print("search_by_metadata: query", query)
+        logger.info(f"Executing metadata search with query: {query_str}")
 
-        results = self.redis_client.ft(self.meta_index_name).search(query.paging(0, k))
-
-        doc_paths = [doc.id.split(":")[-1] for doc in results.docs]
-        unique_doc_paths = list(set(doc_paths))
-
-        return unique_doc_paths
+        try:
+            results = self.redis_client.ft(self.meta_index_name).search(query)
+            doc_paths = [doc.id.split(":")[-1] for doc in results.docs]
+            unique_doc_paths = list(set(doc_paths))
+            logger.info(f"Metadata search returned {len(unique_doc_paths)} results")
+            return unique_doc_paths
+        except Exception as e:
+            logger.error(f"Error executing metadata search: {str(e)}")
+            return []
 
     def ml_search(
         self,
@@ -214,8 +210,7 @@ class RedisManager:
         )
         lexical_scores = self._get_lexical_scores(query_lexical_weights, window_size)
 
-        if not sparse_weight:
-            sparse_weight = 1 - dense_weight
+        sparse_weight = sparse_weight or (1 - dense_weight)
         combined_results = self._combine_scores(
             dense_results, lexical_scores, dense_weight, sparse_weight
         )
@@ -228,10 +223,18 @@ class RedisManager:
     def _search_dense_vector(
         self, query_dense_vector, window_size, k, pre_filtered_doc_paths
     ):
-        query_str = f"(@window_size:[{window_size} {window_size}]) =>[KNN {k} @dense_vector $vec_param AS dense_score]"
+        query_str = f"(@window_size:[{window_size} {window_size}])"
+
         if pre_filtered_doc_paths:
-            pre_filtered_doc_paths_str = "|".join(pre_filtered_doc_paths)
-            query_str += f" @doc_path:({pre_filtered_doc_paths_str})"
+            escaped_pre_filtered_doc_paths = [
+                f'"{path.replace(".", "_.")}"' for path in pre_filtered_doc_paths
+            ]
+            escaped_pre_filtered_doc_paths = [path.replace("-", r"\-") for path in escaped_pre_filtered_doc_paths]
+            pre_filtered_doc_paths_str = "|".join(escaped_pre_filtered_doc_paths)
+            query_str = f"(@window_size:[{window_size} {window_size}] @doc_path:({pre_filtered_doc_paths_str}))"
+
+        query_str += f" =>[KNN {k} @dense_vector $vec_param AS dense_score]"
+        logger.info(f"Executing dense vector search with query: {query_str}")
 
         dense_query = (
             Query(query_str)
@@ -242,9 +245,14 @@ class RedisManager:
         query_dense_vector_fp32 = query_dense_vector.astype(np.float32)
         dense_query_params = {"vec_param": query_dense_vector_fp32.tobytes()}
 
-        return self.redis_client.ft(self.ml_index_name).search(
+        results = self.redis_client.ft(self.ml_index_name).search(
             dense_query, query_params=dense_query_params
         )
+
+        for result in results.docs:
+            result.doc_path = result.doc_path.replace("_.", ".")
+
+        return results
 
     def _get_lexical_scores(self, query_lexical_weights, window_size):
         lexical_scores = {}
@@ -303,36 +311,23 @@ class RedisManager:
             logger.warning(f"Mean dense vector not found for path: {doc_path}")
             return None
 
-
     def search_similar_docs(self, mean_dense_vector, k, threshold):
-        # Ensure the mean_dense_vector is a numpy array of type float32
         mean_dense_vector_fp32 = np.array(mean_dense_vector, dtype=np.float32)
-
-        # Construct the query string for KNN search
         query_str = f"*=>[KNN {k} @mean_dense_vector $vec_param AS similarity_score]"
-
-        # Create the query object
         query = (
             Query(query_str)
             .return_fields("doc_path", "similarity_score")
             .sort_by("similarity_score")
             .dialect(2)
         )
-
-        # Prepare query parameters
         query_params = {"vec_param": mean_dense_vector_fp32.tobytes()}
-
-        # Execute the search query
         results = self.redis_client.ft(self.meta_index_name).search(
             query, query_params=query_params
         )
-
-        # Extract the results
         similar_docs = [
             {"doc_path": doc.doc_path, "similarity_score": float(doc.similarity_score)}
             for doc in results.docs
         ]
-
         return similar_docs
 
     def save_datastore(self):
@@ -355,14 +350,23 @@ class RedisManager:
             self.save_datastore()
 
     def delete_doc(self, doc_path):
-        passages = self.redis_client.ft(self.ml_index_name).search(
-            Query(f"@doc_path:{doc_path}").return_fields("id")
-        )
-        for passage in passages.docs:
-            passage_id = passage.id.split(":")[-1]
-            self.redis_client.delete(f"{self.ml_index_name}:passage:{passage_id}")
-        self.redis_client.delete(f"{self.meta_index_name}:doc:{doc_path}")
-        self._increment_write_operations()
+        try:
+            meta_key = f"{self.meta_index_name}:doc:{doc_path}"
+            self.redis_client.delete(meta_key)
+            logger.info(f"Document '{doc_path}' deleted from metadata index")
+
+            query_str = f"@doc_path:{{{doc_path.replace('.', '_.')}}}"
+            query = Query(query_str).return_fields("doc_path")
+            results = self.redis_client.ft(self.ml_index_name).search(query)
+
+            for doc in results.docs:
+                passage_key = doc.id
+                self.redis_client.delete(passage_key)
+                logger.info(f"Passage '{passage_key}' deleted from ML index")
+
+            logger.info(f"Document '{doc_path}' and its passages deleted successfully")
+        except Exception as e:
+            logger.error(f"Error deleting document '{doc_path}': {str(e)}")
 
     def get_doc_text(self, doc_path):
         doc_text = self.redis_client.get(f"doc_text:{doc_path}")
@@ -394,7 +398,6 @@ class RedisManager:
         self.redis_client.hset(
             f"{self.meta_index_name}:doc:{doc_path}", "file_hash", file_hash
         )
-        # Set ml_synced to false when the document hash is updated
         self.redis_client.hset(
             f"{self.meta_index_name}:doc:{doc_path}", "ml_synced", "false"
         )
@@ -408,10 +411,7 @@ class RedisManager:
         ml_synced = self.redis_client.hget(
             f"{self.meta_index_name}:doc:{doc_path}", "ml_synced"
         )
-        if ml_synced:
-            return ml_synced.decode("utf-8")
-        else:
-            return None
+        return ml_synced.decode("utf-8") if ml_synced else None
 
     def get_doc_metadata(self, doc_path):
         doc = self.redis_client.hgetall(f"{self.meta_index_name}:doc:{doc_path}")
@@ -428,3 +428,30 @@ class RedisManager:
         else:
             logger.warning(f"Document not found for path: {doc_path}")
             return None
+
+    def get_doc_tags(self, doc_path):
+        try:
+            tags = self.redis_client.hget(
+                f"{self.meta_index_name}:doc:{doc_path}", "tags"
+            )
+            return tags.decode("utf-8").split(",") if tags else []
+        except Exception as e:
+            logger.error(f"Error getting tags for document '{doc_path}': {str(e)}")
+            return []
+
+    def update_doc_tags(self, doc_path, tags):
+        try:
+            tags_str = ",".join(tags)
+            self.redis_client.hset(
+                f"{self.meta_index_name}:doc:{doc_path}", "tags", tags_str
+            )
+            self._increment_write_operations()
+            logger.info(f"Tags for document '{doc_path}' updated successfully")
+        except Exception as e:
+            logger.error(f"Error updating tags for document '{doc_path}': {str(e)}")
+
+    def _convert_doc_path_to_ml(self, doc_path):
+        return doc_path.replace(".", "_.")
+
+    def _convert_doc_path_from_ml(self, doc_path_ml):
+        return doc_path_ml.replace("_.", ".")

@@ -25,7 +25,7 @@ class ASRModel:
     def transcribe_and_diarize(self, audio_file_path):
         # Transcribe the audio file using Whisper
         print("Transcribing audio...")
-        result = self.whisper_model.transcribe(audio_file_path, verbose=False)
+        result = self.whisper_model.transcribe(audio_file_path, verbose=True)
         print("Transcription complete.")
         
         # Perform speaker diarization using PyAnnote

@@ -209,7 +209,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ results, timeTaken
               </CollapsibleContent>
               {similarDocs[doc_path] && (
                 <div className="mt-4">
-                  <h4 className="text-sm font-semibold mb-2">Similar Documents:</h4>
+                  <h4 className="text-sm font-semibold py-4">Similar Documents:</h4>
                   <div className="flex flex-wrap space-x-2">
                     {similarDocs[doc_path].map((similarDoc, index) => (
                       <Tooltip delayDuration={50}>
@@ -231,7 +231,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ results, timeTaken
                         </TooltipTrigger>
                         <TooltipContent sideOffset={5}>
                           <p>{similarDoc.doc_path}</p>
-                          <p>Distance: {similarDoc.score.toFixed(significantDigits)}</p>
+                          <p className="text-muted-foreground">Distance: {similarDoc.score.toFixed(significantDigits)}</p>
                         </TooltipContent>
                       </Tooltip>
                     ))}

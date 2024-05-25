@@ -88,6 +88,7 @@ export const FileManagerProvider: React.FC<FileManagerProviderProps> = ({ childr
         metadataResults.forEach(({ path, metadata }) => {
           const parts = path.split("/").slice(2);
           let currentLevel = newFileTree;
+          // console.log(metadata);
 
           parts.forEach((part: any, index: any) => {
             if (index === parts.length - 1) {

@@ -179,7 +179,7 @@ def insert_documents():
         creation_time = os.path.getctime(doc_path)
         modification_time = os.path.getmtime(doc_path)
         size = os.path.getsize(doc_path)
-
+        
         redis_manager.insert_metadata(
             doc_path,
             file_hash,
@@ -198,9 +198,9 @@ def insert_documents():
                 "ML service not enabled, skipping document. Set 'use_bge' to True to enable."
             )
             continue
-        if nougat is None:
+        if nougat is None and file_extension == "pdf":
             load_nougat()
-        if asr_model is None:
+        if asr_model is None and file_extension in ["wav", "mp3", "ogg", "mp4"]:
             load_asr_model()
 
         if doc_path.split(".")[-1] not in extractors:
@@ -259,6 +259,21 @@ def insert_documents():
     return jsonify({"message": "Documents inserted successfully"})
 
 
+@api_routes.route("/delete_documents", methods=["POST"])
+def delete_documents():
+    auto_unload_models()
+    data = request.get_json()
+    doc_paths = data.get("doc_paths", [])
+
+    if not doc_paths:
+        return jsonify({"error": "Missing 'doc_paths' parameter"}), 400
+
+    for doc_path in doc_paths:
+        redis_manager.delete_doc(doc_path)
+
+    return jsonify({"message": f"Documents deleted successfully"})
+
+
 @api_routes.route("/search", methods=["POST"])
 def search():
     auto_unload_models()
@@ -315,7 +330,7 @@ def search():
         k=k,
         # size_filter=size_filter,
     )
-
+    
     passages = []
     for (doc_path, start_pos, end_pos), scores in search_results:
         doc_text = redis_manager.get_doc_text(doc_path)
@@ -331,10 +346,10 @@ def search():
         )
 
     # filter only passages with path in the doc_path, remove after fixing metadata_search
-    if path:
-        passages = [
-            passage for passage in passages if passage["doc_path"].startswith(path)
-        ]
+    # if path:
+    #     passages = [
+    #         passage for passage in passages if passage["doc_path"].startswith(path)
+    #     ]
 
     return jsonify({"passages": passages})
 
@@ -378,6 +393,24 @@ def get_ml_synced():
         return jsonify({"ml_synced": ml_synced})
     else:
         return jsonify({"error": "Document ml_synced not found"}), 404
+
+
+@api_routes.route("/update_ml_synced", methods=["POST"])
+def update_ml_synced():
+    auto_unload_models()
+    data = request.get_json()
+    doc_path = data.get("doc_path")
+    ml_synced = data.get("ml_synced")
+
+    if not doc_path:
+        return jsonify({"error": "Missing 'doc_path' parameter"}), 400
+    if ml_synced is None:
+        return jsonify({"error": "Missing 'ml_synced' parameter"}), 400
+
+    redis_manager.update_doc_ml_synced(doc_path, ml_synced)
+    return jsonify(
+        {"message": "ML synced status updated successfully", "ml_synced": ml_synced}
+    )
 
 
 @api_routes.route("/get_doc_metadata", methods=["GET"])
@@ -440,3 +473,75 @@ def download_file():
         return jsonify({"error": "File not found"}), 404
 
     return send_file(doc_path, as_attachment=True, mimetype="application/octet-stream")
+
+
+@api_routes.route("/get_doc_tags", methods=["GET"])
+def get_doc_tags():
+    auto_unload_models()
+    doc_path = request.args.get("doc_path")
+    if not doc_path:
+        return jsonify({"error": "Missing 'doc_path' parameter"}), 400
+
+    tags = redis_manager.get_doc_tags(doc_path)
+    if tags is not None:
+        return jsonify({"tags": tags})
+    else:
+        return jsonify({"error": "Tags not found for the given document"}), 404
+
+
+@api_routes.route("/update_doc_tags", methods=["POST"])
+def update_doc_tags():
+    auto_unload_models()
+    data = request.get_json()
+    doc_path = data.get("doc_path")
+    new_tags = data.get("tags", [])
+
+    if not doc_path:
+        return jsonify({"error": "Missing 'doc_path' parameter"}), 400
+    if not new_tags:
+        return jsonify({"error": "Missing 'tags' parameter"}), 400
+
+    redis_manager.update_doc_tags(doc_path, new_tags)
+    return jsonify({"message": "Tags updated successfully", "tags": new_tags})
+
+
+@api_routes.route("/add_doc_tags", methods=["POST"])
+def add_doc_tags():
+    auto_unload_models()
+    data = request.get_json()
+    doc_path = data.get("doc_path")
+    new_tags = data.get("tags", [])
+
+    if not doc_path:
+        return jsonify({"error": "Missing 'doc_path' parameter"}), 400
+    if not new_tags:
+        return jsonify({"error": "Missing 'tags' parameter"}), 400
+
+    current_tags = redis_manager.get_doc_tags(doc_path)
+    if current_tags is None:
+        return jsonify({"error": "Document not found"}), 404
+
+    updated_tags = list(set(current_tags + new_tags))
+    redis_manager.update_doc_tags(doc_path, updated_tags)
+    return jsonify({"message": "Tags added successfully", "tags": updated_tags})
+
+
+@api_routes.route("/remove_doc_tags", methods=["POST"])
+def remove_doc_tags():
+    auto_unload_models()
+    data = request.get_json()
+    doc_path = data.get("doc_path")
+    tags_to_remove = data.get("tags", [])
+
+    if not doc_path:
+        return jsonify({"error": "Missing 'doc_path' parameter"}), 400
+    if not tags_to_remove:
+        return jsonify({"error": "Missing 'tags' parameter"}), 400
+
+    current_tags = redis_manager.get_doc_tags(doc_path)
+    if current_tags is None:
+        return jsonify({"error": "Document not found"}), 404
+
+    updated_tags = [tag for tag in current_tags if tag not in tags_to_remove]
+    redis_manager.update_doc_tags(doc_path, updated_tags)
+    return jsonify({"message": "Tags removed successfully", "tags": updated_tags})

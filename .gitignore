@@ -49,3 +49,8 @@ dev/
 # Data
 data/*
 !data/.gitkeep
+
+# Misc
+output.txt
+show.py
+show.sh

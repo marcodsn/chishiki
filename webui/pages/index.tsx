@@ -172,7 +172,7 @@ function HomeContent() {
                     timeTaken={state.timeTaken}
                     query={state.query}
                     highlightQuery={settingsState.highlightQuery}
-                    className="max-w-6xl mx-auto"
+                    className="2xl:max-w-6xl mx-auto"
                   />
                 )}
               </ScrollArea>

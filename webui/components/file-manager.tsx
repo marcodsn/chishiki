@@ -184,7 +184,7 @@ export const FileManager: React.FC = () => {
   };
 
   return (
-    <div className="py-6 max-w-6xl mx-auto">
+    <div className="py-6 2xl:max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div className="flex space-x-2">
           <Button onClick={handleUploadClick}>

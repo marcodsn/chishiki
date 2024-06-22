@@ -192,16 +192,30 @@ def insert_documents():
 
         if model is None:
             load_model()
-        if model is None:
-            redis_manager.update_doc_ml_synced(doc_path, "false")
-            print(
-                "ML service not enabled, skipping document. Set 'use_bge' to True to enable."
-            )
-            continue
+            if model is None:
+                redis_manager.update_doc_ml_synced(doc_path, "false")
+                return (
+                    jsonify(
+                        {"error": 'ML service not enabled, set "use_bge" to True to enable'}
+                    ),
+                    500,
+                )
         if nougat is None and file_extension == "pdf":
             load_nougat()
+            if nougat is None:
+                redis_manager.update_doc_ml_synced(doc_path, "false")
+                print(
+                    "Nougat service not enabled, skipping document. Set 'use_nougat' to True to enable."
+                )
+                continue
         if asr_model is None and file_extension in ["wav", "mp3", "ogg", "mp4"]:
             load_asr_model()
+            if asr_model is None:
+                redis_manager.update_doc_ml_synced(doc_path, "false")
+                print(
+                    "ASR service not enabled, skipping document. Set 'use_asr' to True to enable."
+                )
+                continue
 
         if doc_path.split(".")[-1] not in extractors:
             redis_manager.update_doc_ml_synced(doc_path, "false")

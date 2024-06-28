@@ -11,10 +11,10 @@ COPY package*.json ./
 RUN npm install
 
 # Copy the rest of your application's code
-# COPY . .
+COPY . .
 
 # Build your Next.js application
-# RUN npm run build
+# RUN npm run build
 
 # Expose the port the app runs on
 EXPOSE 3000

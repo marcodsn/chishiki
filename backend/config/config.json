@@ -26,7 +26,7 @@
         "bge_unload_interval": 300,
         "use_nougat": true,
         "nougat_unload_interval": 300,
-        "use_asr": true,
+        "use_asr": false,
         "asr_unload_interval": 300
     }
 }

@@ -6,8 +6,7 @@ from flask import Blueprint, request, jsonify, send_file
 import torch
 from app.utils.redis_manager import RedisManager
 from app.models.bge import BGEModel
-from app.models.nougat import Nougat
-from app.models.asr import ASRModel
+from app.models._docling import Docling
 from app.utils.misc import passages_generator
 from app.utils.docs2text import extractors
 from config import config
@@ -24,11 +23,7 @@ model = None
 tokenizer = None
 last_model_use_time = 0
 
-nougat = None
-last_nougat_use_time = 0
-
-asr_model = None
-last_asr_use_time = 0
+docling = Docling()
 
 MODEL_TIMEOUT = 600  # Unload models after 10 minutes of inactivity
 
@@ -41,45 +36,17 @@ def load_model():
         last_model_use_time = time.time()
 
 
-def load_nougat():
-    global nougat, last_nougat_use_time
-    if config.config["ml_services"]["use_nougat"]:
-        nougat = Nougat()
-        last_nougat_use_time = time.time()
-
-
-def load_asr_model():
-    global asr_model, last_asr_use_time
-    if config.config["ml_services"]["use_asr"]:
-        asr_model = ASRModel()
-        last_asr_use_time = time.time()
-
-
 def unload_model():
     global model, tokenizer
     model = None
     tokenizer = None
 
 
-def unload_nougat():
-    global nougat
-    nougat = None
-
-
-def unload_asr_model():
-    global asr_model
-    asr_model = None
-
-
 def auto_unload_models():
-    global last_model_use_time, last_nougat_use_time, last_asr_use_time
+    global last_model_use_time
     current_time = time.time()
     if model and current_time - last_model_use_time > MODEL_TIMEOUT:
         unload_model()
-    if nougat and current_time - last_nougat_use_time > MODEL_TIMEOUT:
-        unload_nougat()
-    if asr_model and current_time - last_asr_use_time > MODEL_TIMEOUT:
-        unload_asr_model()
 
 
 def generate_passage_id(dense_vector, doc_path):
@@ -179,7 +146,7 @@ def insert_documents():
         creation_time = os.path.getctime(doc_path)
         modification_time = os.path.getmtime(doc_path)
         size = os.path.getsize(doc_path)
-        
+
         redis_manager.insert_metadata(
             doc_path,
             file_hash,
@@ -200,34 +167,16 @@ def insert_documents():
                     ),
                     500,
                 )
-        if nougat is None and file_extension == "pdf":
-            load_nougat()
-            if nougat is None:
-                redis_manager.update_doc_ml_synced(doc_path, "false")
-                print(
-                    "Nougat service not enabled, skipping document. Set 'use_nougat' to True to enable."
-                )
-                continue
-        if asr_model is None and file_extension in ["wav", "mp3", "ogg", "mp4"]:
-            load_asr_model()
-            if asr_model is None:
-                redis_manager.update_doc_ml_synced(doc_path, "false")
-                print(
-                    "ASR service not enabled, skipping document. Set 'use_asr' to True to enable."
-                )
-                continue
 
         if doc_path.split(".")[-1] not in extractors:
             redis_manager.update_doc_ml_synced(doc_path, "false")
             print(f"Document {doc_path} not supported")
             continue
 
-        if nougat and doc_path.split(".")[-1] == "pdf":
-            text = extractors[doc_path.split(".")[-1]](doc_path, nougat)
-        elif asr_model and doc_path.split(".")[-1] in ["wav", "mp3", "ogg", "mp4"]:
-            text = extractors[doc_path.split(".")[-1]](doc_path, asr_model)
+        if docling and doc_path.split(".")[-1] == "pdf":
+            text = extractors[doc_path.split(".")[-1]](doc_path, docling)
         else:
-            text = extractors[doc_path.split(".")[-1]](doc_path)
+            text = extractors[doc_path.split(".")[-1]](doc_path, docling)
 
         redis_manager.set_doc_text(doc_path, text)
 
@@ -344,7 +293,7 @@ def search():
         k=k,
         # size_filter=size_filter,
     )
-    
+
     passages = []
     for (doc_path, start_pos, end_pos), scores in search_results:
         doc_text = redis_manager.get_doc_text(doc_path)

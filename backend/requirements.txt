@@ -1,15 +1,10 @@
-FlagEmbedding==1.2.9
+FlagEmbedding==1.3.2
 Flask==3.0.3
-numpy==1.25.1
 pypdf==4.2.0
 redis==5.0.3
-Requests==2.31.0
-torch==2.2.0
 tqdm==4.66.2
 watchdog==4.0.0
 PyMuPDF==1.24.2
 python-Levenshtein==0.25.1
 nltk==3.8.1
-moviepy==1.0.3
-openai-whisper==20231117
-pyannote.audio==3.2.0
+docling==2.8.1

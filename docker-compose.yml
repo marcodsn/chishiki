@@ -1,42 +1,42 @@
 services:
-  webui:
-      build:
-        context: webui
-        dockerfile: Dockerfile
-      ports:
-        - "3010:3000"
-      volumes:
-        - ./data:/data
-      networks:
-        - backend-network
-      depends_on:
-        - backend
-        - redis
+    webui:
+        build:
+            context: webui
+            dockerfile: Dockerfile
+        ports:
+            - "3010:3000"
+        volumes:
+            - ./data:/data
+        networks:
+            - backend-network
+        depends_on:
+            - backend
+            - redis
 
-  backend:
-    build:
-      context: backend
-      dockerfile: Dockerfile
-    ports:
-      - "7710:7710"
-    volumes:
-      - ./backend:/app
-      - ./data:/data
-      - ./cache:/root/.cache
-    depends_on:
-      - redis
-    networks:
-      - backend-network
-    environment:
-      - HF_AUTH_TOKEN=${HF_AUTH_TOKEN}
+    backend:
+        build:
+            context: backend
+            dockerfile: Dockerfile
+        ports:
+            - "7710:7710"
+        volumes:
+            - ./backend:/app
+            - ./data:/data
+            - ./cache:/root/.cache
+        depends_on:
+            - redis
+        networks:
+            - backend-network
+        environment:
+            - HF_AUTH_TOKEN=${HF_AUTH_TOKEN}
 
-  redis:
-    image: redis/redis-stack-server
-    volumes:
-      - ./data/redis-data:/data
-    networks:
-      - backend-network
+    redis:
+        image: redis/redis-stack-server
+        volumes:
+            - ./data/redis-data:/data
+        networks:
+            - backend-network
 
 networks:
-  backend-network:
-    driver: bridge
+    backend-network:
+        driver: bridge

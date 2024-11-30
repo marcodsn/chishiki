@@ -13,11 +13,12 @@ class BGEModel:
         print(f"Using device: {self.device}")
         use_fp16 = use_fp16 and torch.cuda.is_available()
         print(f"Using FP16: {use_fp16}")
-        
+
         print("Loading bge...")
-        self.bge = BGEM3FlagModel(model_name, use_fp16=use_fp16, device=self.device)
+        self.bge = BGEM3FlagModel(model_name, use_fp16=use_fp16)
+        self.bge.model.to(self.device)
         print("Model loaded successfully.")
-        
+
         self.tokenizer = self.bge.tokenizer
 
     def compute_lexical_matching_score(self, lexical_weights_1, lexical_weights_2):
@@ -33,7 +34,7 @@ class BGEModel:
             return_tensors="pt",
             max_length=max_length,
         )  # .to(self.bge.model.device)
-        
+
     def decode(self, tokenized_batch, skip_special_tokens=True):
         return self.tokenizer.decode(tokenized_batch, skip_special_tokens=skip_special_tokens)
 
@@ -98,7 +99,7 @@ class BGEModel:
                 batch_data,
                 return_dense=return_dense,
                 return_sparse=return_sparse,
-                return_colbert=return_colbert_vecs,
+                # return_colbert=return_colbert_vecs,
             )
             if return_dense:
                 all_dense_embeddings.append(output["dense_vecs"].cpu().numpy())

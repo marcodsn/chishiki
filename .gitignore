@@ -54,3 +54,4 @@ data/*
 output.txt
 show.py
 show.sh
+.aider*

@@ -1,4 +1,5 @@
 import torch
+import hashlib
 
 def passages_generator(text, tokenizer, window_size=2048, stride=0.75):
     start_pos = 0
@@ -25,3 +26,8 @@ def passages_generator(text, tokenizer, window_size=2048, stride=0.75):
         passage_mask = tokens["attention_mask"][0]
         end_pos = start_pos + len(tokenizer.decode(passage_ids, skip_special_tokens=True))
         yield passage_ids, passage_mask, start_pos, end_pos
+
+def calculate_file_hash(file_path):
+    with open(file_path, "rb") as file:
+        file_hash = hashlib.md5(file.read()).hexdigest()
+    return file_hash

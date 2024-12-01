@@ -11,7 +11,7 @@ services:
             - backend-network
         depends_on:
             - backend
-            - redis
+            - postgres
 
     backend:
         build:
@@ -24,18 +24,34 @@ services:
             - ./data:/data
             - ./cache:/root/.cache
         depends_on:
-            - redis
+            - postgres
         networks:
             - backend-network
         environment:
             - HF_AUTH_TOKEN=${HF_AUTH_TOKEN}
+            - POSTGRES_HOST=postgres
+            - POSTGRES_DB=chishiki
+            - POSTGRES_USER=chishiki_user
+            - POSTGRES_PASSWORD=your_secure_password
 
-    redis:
-        image: redis/redis-stack-server
+    postgres:
+        image: pgvector/pgvector:0.8.0-pg17
+        ports:
+            - "5432:5432"
         volumes:
-            - ./data/redis-data:/data
+            - ./data/postgres:/var/lib/postgresql/data
+            - ./init-scripts:/docker-entrypoint-initdb.d
+        environment:
+            - POSTGRES_DB=chishiki
+            - POSTGRES_USER=chishiki_user
+            - POSTGRES_PASSWORD=your_secure_password
         networks:
             - backend-network
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U chishiki_user -d chishiki"]
+            interval: 5s
+            timeout: 5s
+            retries: 5
 
 networks:
     backend-network:

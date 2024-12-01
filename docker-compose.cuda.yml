@@ -1,44 +1,60 @@
 services:
-  webui:
-      build:
-        context: webui
-        dockerfile: Dockerfile
-      ports:
-        - "3010:3000"
-      volumes:
-        - ./data:/data
-      networks:
-        - backend-network
-      depends_on:
-        - backend
-        - redis
+    webui:
+        build:
+            context: webui
+            dockerfile: Dockerfile
+        ports:
+            - "3010:3000"
+        volumes:
+            - ./data:/data
+        networks:
+            - backend-network
+        depends_on:
+            - backend
+            - postgres
 
-  backend:
-    build:
-      context: backend
-      dockerfile: Dockerfile.cuda
-    ports:
-      - "7710:7710"
-    volumes:
-      - ./backend:/app
-      - ./data:/data
-      - ./cache:/root/.cache
-    depends_on:
-      - redis
-    networks:
-      - backend-network
-    runtime: nvidia
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - HF_AUTH_TOKEN=${HF_AUTH_TOKEN}
+    backend:
+        build:
+            context: backend
+            dockerfile: Dockerfile.cuda
+        ports:
+            - "7710:7710"
+        volumes:
+            - ./backend:/app
+            - ./data:/data
+            - ./cache:/root/.cache
+        depends_on:
+            - postgres
+        networks:
+            - backend-network
+        runtime: nvidia
+        environment:
+            - NVIDIA_VISIBLE_DEVICES=0
+            - HF_AUTH_TOKEN=${HF_AUTH_TOKEN}
+            - POSTGRES_HOST=postgres
+            - POSTGRES_DB=chishiki
+            - POSTGRES_USER=chishiki_user
+            - POSTGRES_PASSWORD=your_secure_password
 
-  redis:
-    image: redis/redis-stack-server
-    volumes:
-      - ./data/redis-data:/data
-    networks:
-      - backend-network
+    postgres:
+        image: pgvector/pgvector:0.8.0-pg17
+        ports:
+            - "5432:5432"
+        volumes:
+            - ./data/postgres:/var/lib/postgresql/data
+            - ./init-scripts:/docker-entrypoint-initdb.d
+        environment:
+            - POSTGRES_DB=chishiki
+            - POSTGRES_USER=chishiki_user
+            - POSTGRES_PASSWORD=your_secure_password
+        networks:
+            - backend-network
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U chishiki_user -d chishiki"]
+            interval: 5s
+            timeout: 5s
+            retries: 5
 
 networks:
-  backend-network:
-    driver: bridge
+    backend-network:
+        driver: bridge

@@ -1,32 +1,17 @@
 {
-    "redis": {
-        "host": "redis",
-        "port": 6379
+    "postgres": {
+        "host": "postgres",
+        "port": 5432
     },
     "backend": {
         "host": "0.0.0.0",
         "port": 7710,
         "debug": false
     },
-    "windows": [
-        128,
-        256,
-        512
-    ],
-    "extensions": [
-        ".pdf",
-        ".txt",
-        ".wav",
-        ".mp3",
-        ".ogg",
-        ".mp4"
-    ],
+    "windows": [128, 256, 512],
+    "extensions": [".pdf", ".txt", ".wav", ".mp3", ".ogg", ".mp4"],
     "ml_services": {
         "use_bge": true,
-        "bge_unload_interval": 300,
-        "use_nougat": true,
-        "nougat_unload_interval": 300,
-        "use_asr": false,
-        "asr_unload_interval": 300
+        "bge_unload_interval": 300
     }
 }

@@ -1,10 +1,12 @@
 import os
 import time
-import hashlib
 import numpy as np
+import hashlib
 from flask import Blueprint, request, jsonify, send_file
 import torch
-from app.utils.redis_manager import RedisManager
+# from app.utils.redis_manager import RedisManager
+from app.utils.pg_manager import PostgresManager
+from app.utils.misc import calculate_file_hash
 from app.models.bge import BGEModel
 from app.models._docling import Docling
 from app.utils.misc import passages_generator
@@ -14,9 +16,17 @@ from werkzeug.utils import secure_filename
 
 api_routes = Blueprint("api", __name__)
 
-redis_manager = RedisManager(
-    host=config.config["redis"]["host"],
-    port=config.config["redis"]["port"],
+# redis_manager = RedisManager(
+#     host=config.config["redis"]["host"],
+#     port=config.config["redis"]["port"],
+# )
+
+postgres_manager = PostgresManager(
+    host=config.config["postgres"]["host"],
+    port=config.config["postgres"]["port"],
+    # user=config.config["postgres"]["user"],
+    # password=config.config["postgres"]["password"],
+    # dbname=config.config["postgres"]["database"],
 )
 
 model = None
@@ -55,28 +65,23 @@ def generate_passage_id(dense_vector, doc_path):
     return passage_id
 
 
-def calculate_file_hash(file_path):
-    with open(file_path, "rb") as file:
-        file_hash = hashlib.md5(file.read()).hexdigest()
-    return file_hash
+# @api_routes.route("/create_index", methods=["POST"])
+# def create_index():
+#     # redis_manager.create_index()
+#     postgres_manager.create_index()
+#     return jsonify({"message": "Index created successfully"})
 
 
-@api_routes.route("/create_index", methods=["POST"])
-def create_index():
-    redis_manager.create_index()
-    return jsonify({"message": "Index created successfully"})
+# @api_routes.route("/flush_datastore", methods=["POST"])
+# def flush_datastore():
+#     redis_manager.flush_datastore()
+#     return jsonify({"message": "Datastore flushed successfully"})
 
 
-@api_routes.route("/flush_datastore", methods=["POST"])
-def flush_datastore():
-    redis_manager.flush_datastore()
-    return jsonify({"message": "Datastore flushed successfully"})
-
-
-@api_routes.route("/save_datastore", methods=["POST"])
-def save_datastore():
-    redis_manager.save_datastore()
-    return jsonify({"message": "Datastore saved successfully"})
+# @api_routes.route("/save_datastore", methods=["POST"])
+# def save_datastore():
+#     redis_manager.save_datastore()
+#     return jsonify({"message": "Datastore saved successfully"})
 
 
 @api_routes.route("/insert_passage", methods=["POST"])
@@ -104,7 +109,7 @@ def insert_passage():
     global last_model_use_time
     last_model_use_time = time.time()
 
-    text = redis_manager.get_doc_text(doc_path)[start_pos:end_pos]
+    text = postgres_manager.get_doc_text(doc_path)[start_pos:end_pos]
     tokenized = tokenizer(text, return_tensors="pt")
     ids, mask = tokenized["input_ids"][0], tokenized["attention_mask"][0]
 
@@ -115,7 +120,7 @@ def insert_passage():
     passage_id = generate_passage_id(dense_vector, doc_path)
     lexical_weights = encoded["lexical_weights"][0]
 
-    redis_manager.insert_passage(
+    postgres_manager.insert_passage(
         passage_id,
         doc_path,
         file_hash,
@@ -143,11 +148,12 @@ def insert_documents():
         file_extension = (
             os.path.splitext(filename)[1][1:] if "." in filename else filename
         )
+        # UNIX timestamps
         creation_time = os.path.getctime(doc_path)
         modification_time = os.path.getmtime(doc_path)
         size = os.path.getsize(doc_path)
 
-        redis_manager.insert_metadata(
+        postgres_manager.insert_metadata(
             doc_path,
             file_hash,
             filename,
@@ -160,7 +166,7 @@ def insert_documents():
         if model is None:
             load_model()
             if model is None:
-                redis_manager.update_doc_ml_synced(doc_path, "false")
+                postgres_manager.update_doc_ml_synced(doc_path, "false")
                 return (
                     jsonify(
                         {"error": 'ML service not enabled, set "use_bge" to True to enable'}
@@ -169,7 +175,7 @@ def insert_documents():
                 )
 
         if doc_path.split(".")[-1] not in extractors:
-            redis_manager.update_doc_ml_synced(doc_path, "false")
+            postgres_manager.update_doc_ml_synced(doc_path, False)
             print(f"Document {doc_path} not supported")
             continue
 
@@ -178,7 +184,7 @@ def insert_documents():
         else:
             text = extractors[doc_path.split(".")[-1]](doc_path, docling)
 
-        redis_manager.set_doc_text(doc_path, text)
+        postgres_manager.set_doc_text(doc_path, text)
 
         all_dense_vectors = []
 
@@ -202,7 +208,7 @@ def insert_documents():
                     )
                 all_dense_vectors.append(dense_vector)
                 passage_id = generate_passage_id(dense_vector, doc_path)
-                redis_manager.insert_passage(
+                postgres_manager.insert_passage(
                     passage_id,
                     doc_path,
                     file_hash,
@@ -215,9 +221,9 @@ def insert_documents():
                 )
 
         mean_dense_vector = np.mean(all_dense_vectors, axis=0)
-        redis_manager.insert_mean_dense_vector(doc_path, mean_dense_vector)
+        postgres_manager.insert_mean_dense_vector(doc_path, mean_dense_vector)
 
-        redis_manager.update_doc_ml_synced(doc_path, "true")
+        postgres_manager.update_doc_ml_synced(doc_path, True)
 
     return jsonify({"message": "Documents inserted successfully"})
 
@@ -232,7 +238,7 @@ def delete_documents():
         return jsonify({"error": "Missing 'doc_paths' parameter"}), 400
 
     for doc_path in doc_paths:
-        redis_manager.delete_doc(doc_path)
+        postgres_manager.delete_doc(doc_path)
 
     return jsonify({"message": f"Documents deleted successfully"})
 
@@ -281,7 +287,7 @@ def search():
             encoding["lexical_weights"][0],
         )
 
-    search_results = redis_manager.ml_search(
+    search_results = postgres_manager.ml_search(
         query_dense_vector,
         query_lexical_weights,
         tags=tags,
@@ -296,7 +302,7 @@ def search():
 
     passages = []
     for (doc_path, start_pos, end_pos), scores in search_results:
-        doc_text = redis_manager.get_doc_text(doc_path)
+        doc_text = postgres_manager.get_doc_text(doc_path)
         passage_text = doc_text[int(start_pos) : int(end_pos)]
         passages.append(
             {
@@ -325,14 +331,14 @@ def search_similar_docs():
     k = data.get("k", 10)
     threshold = data.get("threshold", 0.3)
 
-    mean_dense_vector = redis_manager.get_mean_dense_vector(doc_path)
+    mean_dense_vector = postgres_manager.get_mean_dense_vector(doc_path)
     if mean_dense_vector is None:
         return (
             jsonify({"error": "Mean dense vector not found for the given document"}),
             404,
         )
 
-    similar_docs = redis_manager.search_similar_docs(mean_dense_vector, k, threshold)
+    similar_docs = postgres_manager.search_similar_docs(mean_dense_vector, k, threshold)
     return jsonify({"similar_docs": similar_docs})
 
 
@@ -340,7 +346,7 @@ def search_similar_docs():
 def get_doc_text():
     auto_unload_models()
     doc_path = request.args.get("doc_path")
-    doc_text = redis_manager.get_doc_text(doc_path)
+    doc_text = postgres_manager.get_doc_text(doc_path)
     if doc_text:
         return jsonify({"doc_text": doc_text})
     else:
@@ -351,7 +357,7 @@ def get_doc_text():
 def get_ml_synced():
     auto_unload_models()
     doc_path = request.args.get("doc_path")
-    ml_synced = redis_manager.get_doc_ml_synced(doc_path)
+    ml_synced = postgres_manager.get_doc_ml_synced(doc_path)
     if ml_synced:
         return jsonify({"ml_synced": ml_synced})
     else:
@@ -370,7 +376,7 @@ def update_ml_synced():
     if ml_synced is None:
         return jsonify({"error": "Missing 'ml_synced' parameter"}), 400
 
-    redis_manager.update_doc_ml_synced(doc_path, ml_synced)
+    postgres_manager.update_doc_ml_synced(doc_path, ml_synced)
     return jsonify(
         {"message": "ML synced status updated successfully", "ml_synced": ml_synced}
     )
@@ -380,7 +386,7 @@ def update_ml_synced():
 def get_doc_metadata():
     auto_unload_models()
     doc_path = request.args.get("doc_path")
-    doc_metadata = redis_manager.get_doc_metadata(doc_path)
+    doc_metadata = postgres_manager.get_doc_metadata(doc_path)
     if doc_metadata:
         return jsonify(doc_metadata)
     else:
@@ -396,7 +402,7 @@ def search_by_metadata():
     filename = data.get("filename", None)
     size_filter = data.get("size_filter", None)
 
-    doc_paths = redis_manager.search_by_metadata(
+    doc_paths = postgres_manager.search_by_metadata(
         tags=tags, path=path, filename=filename, size_filter=size_filter
     )
     return jsonify({"doc_paths": doc_paths})
@@ -407,7 +413,7 @@ def delete_doc():
     auto_unload_models()
     data = request.get_json()
     doc_path = data["doc_path"]
-    redis_manager.delete_doc(doc_path)
+    postgres_manager.delete_doc(doc_path)
     return jsonify({"message": f"Document '{doc_path}' deleted successfully"})
 
 
@@ -445,7 +451,7 @@ def get_doc_tags():
     if not doc_path:
         return jsonify({"error": "Missing 'doc_path' parameter"}), 400
 
-    tags = redis_manager.get_doc_tags(doc_path)
+    tags = postgres_manager.get_doc_tags(doc_path)
     if tags is not None:
         return jsonify({"tags": tags})
     else:
@@ -464,7 +470,7 @@ def update_doc_tags():
     if not new_tags:
         return jsonify({"error": "Missing 'tags' parameter"}), 400
 
-    redis_manager.update_doc_tags(doc_path, new_tags)
+    postgres_manager.update_doc_tags(doc_path, new_tags)
     return jsonify({"message": "Tags updated successfully", "tags": new_tags})
 
 
@@ -480,12 +486,12 @@ def add_doc_tags():
     if not new_tags:
         return jsonify({"error": "Missing 'tags' parameter"}), 400
 
-    current_tags = redis_manager.get_doc_tags(doc_path)
+    current_tags = postgres_manager.get_doc_tags(doc_path)
     if current_tags is None:
         return jsonify({"error": "Document not found"}), 404
 
     updated_tags = list(set(current_tags + new_tags))
-    redis_manager.update_doc_tags(doc_path, updated_tags)
+    postgres_manager.update_doc_tags(doc_path, updated_tags)
     return jsonify({"message": "Tags added successfully", "tags": updated_tags})
 
 
@@ -501,10 +507,10 @@ def remove_doc_tags():
     if not tags_to_remove:
         return jsonify({"error": "Missing 'tags' parameter"}), 400
 
-    current_tags = redis_manager.get_doc_tags(doc_path)
+    current_tags = postgres_manager.get_doc_tags(doc_path)
     if current_tags is None:
         return jsonify({"error": "Document not found"}), 404
 
     updated_tags = [tag for tag in current_tags if tag not in tags_to_remove]
-    redis_manager.update_doc_tags(doc_path, updated_tags)
+    postgres_manager.update_doc_tags(doc_path, updated_tags)
     return jsonify({"message": "Tags removed successfully", "tags": updated_tags})

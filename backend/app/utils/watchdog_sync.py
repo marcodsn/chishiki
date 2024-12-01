@@ -1,17 +1,10 @@
 import time
 import requests
-import hashlib
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from config import config
 from queue import Queue
 import threading
-
-def calculate_file_hash(file_path):
-    with open(file_path, "rb") as file:
-        file_hash = hashlib.md5(file.read()).hexdigest()
-    return file_hash
-
 
 class DocumentWatchdog(FileSystemEventHandler):
     def __init__(self, docs_path):

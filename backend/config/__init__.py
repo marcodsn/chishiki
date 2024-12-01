@@ -3,8 +3,8 @@ import json
 
 default_config = {
     "redis": {
-        "host": "redis",
-        "port": 6379,
+        "host": "postgres",
+        "port": 5432,
     },
     "backend": {
         "host": "0.0.0.0",

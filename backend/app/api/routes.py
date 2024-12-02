@@ -2,6 +2,8 @@ import os
 import time
 import numpy as np
 import hashlib
+import threading
+from threading import Lock
 from flask import Blueprint, request, jsonify, send_file
 import torch
 # from app.utils.redis_manager import RedisManager
@@ -29,34 +31,73 @@ postgres_manager = PostgresManager(
     # dbname=config.config["postgres"]["database"],
 )
 
-model = None
-tokenizer = None
-last_model_use_time = 0
+# model = None
+# tokenizer = None
+# last_model_use_time = 0
+# MODEL_TIMEOUT = 600  # Unload models after 10 minutes of inactivity
 
 docling = Docling()
 
-MODEL_TIMEOUT = 600  # Unload models after 10 minutes of inactivity
+class ModelManager:
+    def __init__(self, timeout=600):
+        self.model = None
+        self.tokenizer = None
+        self.last_use_time = 0
+        self.timeout = timeout
+        self.lock = Lock()
+        self._start_monitor()
+
+    def _start_monitor(self):
+        def monitor_model_usage():
+            while True:
+                time.sleep(60)  # Check every minute
+                self.auto_unload()
+
+        self.monitor_thread = threading.Thread(target=monitor_model_usage, daemon=True)
+        self.monitor_thread.start()
+
+    def load_model(self):
+        if self.model is None and config.config["ml_services"]["use_bge"]:
+            self.model = BGEModel()
+            self.tokenizer = self.model.tokenizer
+        self.last_use_time = time.time()
+        return self.model, self.tokenizer
+
+    def auto_unload(self):
+        with self.lock:
+            if self.model and time.time() - self.last_use_time > self.timeout:
+                self.model = None
+                self.tokenizer = None
+                print("Model unloaded due to inactivity")
+
+    def get_model(self):
+        print("Getting model")
+        with self.lock:
+            self.load_model()
+            return self.model, self.tokenizer
+
+model_manager = ModelManager(timeout=600) # Unload models after 10 minutes of inactivity
 
 
-def load_model():
-    global model, tokenizer, last_model_use_time
-    if config.config["ml_services"]["use_bge"]:
-        model = BGEModel()
-        tokenizer = model.tokenizer
-        last_model_use_time = time.time()
+# def load_model():
+#     global model, tokenizer, last_model_use_time
+#     if config.config["ml_services"]["use_bge"]:
+#         model = BGEModel()
+#         tokenizer = model.tokenizer
+#         last_model_use_time = time.time()
 
 
-def unload_model():
-    global model, tokenizer
-    model = None
-    tokenizer = None
+# def unload_model():
+#     global model, tokenizer
+#     model = None
+#     tokenizer = None
 
 
-def auto_unload_models():
-    global last_model_use_time
-    current_time = time.time()
-    if model and current_time - last_model_use_time > MODEL_TIMEOUT:
-        unload_model()
+# def auto_unload_models():
+#     global last_model_use_time
+#     current_time = time.time()
+#     if model and current_time - last_model_use_time > MODEL_TIMEOUT:
+#         unload_model()
 
 
 def generate_passage_id(dense_vector, doc_path):
@@ -86,7 +127,6 @@ def generate_passage_id(dense_vector, doc_path):
 
 @api_routes.route("/insert_passage", methods=["POST"])
 def insert_passage():
-    auto_unload_models()
     data = request.get_json()
     doc_path = data["doc_path"]
     start_pos = data["start_pos"]
@@ -95,8 +135,7 @@ def insert_passage():
     file_hash = calculate_file_hash(doc_path)
     filename = os.path.basename(doc_path)
 
-    if model is None:
-        load_model()
+    model, tokenizer = model_manager.get_model()
     if model is None:
         return (
             jsonify(
@@ -105,9 +144,9 @@ def insert_passage():
             500,
         )
 
-    # Update the last usage time
-    global last_model_use_time
-    last_model_use_time = time.time()
+    # # Update the last usage time
+    # global last_model_use_time
+    # last_model_use_time = time.time()
 
     text = postgres_manager.get_doc_text(doc_path)[start_pos:end_pos]
     tokenized = tokenizer(text, return_tensors="pt")
@@ -136,7 +175,6 @@ def insert_passage():
 
 @api_routes.route("/insert_documents", methods=["POST"])
 def insert_documents():
-    auto_unload_models()
     data = request.get_json()
     doc_paths = data["doc_paths"]
     window_sizes = data.get("window_sizes", [512])
@@ -163,16 +201,15 @@ def insert_documents():
             size,
         )
 
+        model, tokenizer = model_manager.get_model()
         if model is None:
-            load_model()
-            if model is None:
-                postgres_manager.update_doc_ml_synced(doc_path, "false")
-                return (
-                    jsonify(
-                        {"error": 'ML service not enabled, set "use_bge" to True to enable'}
-                    ),
-                    500,
-                )
+            postgres_manager.update_doc_ml_synced(doc_path, False)
+            return (
+                jsonify(
+                    {"error": 'ML service not enabled, set "use_bge" to True to enable'}
+                ),
+                500,
+            )
 
         if doc_path.split(".")[-1] not in extractors:
             postgres_manager.update_doc_ml_synced(doc_path, False)
@@ -230,7 +267,6 @@ def insert_documents():
 
 @api_routes.route("/delete_documents", methods=["POST"])
 def delete_documents():
-    auto_unload_models()
     data = request.get_json()
     doc_paths = data.get("doc_paths", [])
 
@@ -245,10 +281,9 @@ def delete_documents():
 
 @api_routes.route("/search", methods=["POST"])
 def search():
-    auto_unload_models()
     data = request.get_json()
 
-    if "query" not in data:
+    if "query" not in data or not data["query"] or data["query"].strip() == "":
         return jsonify({"error": "Missing 'query' parameter"}), 400
 
     query = data["query"]
@@ -261,8 +296,7 @@ def search():
     k = data.get("k", 30)
     size_filter = data.get("size_filter", None)
 
-    if model is None:
-        load_model()
+    model, tokenizer = model_manager.get_model()
     if model is None:
         return (
             jsonify(
@@ -271,9 +305,9 @@ def search():
             500,
         )
 
-    # Update the last usage time
-    global last_model_use_time
-    last_model_use_time = time.time()
+    # # Update the last usage time
+    # global last_model_use_time
+    # last_model_use_time = time.time()
 
     tokenized = tokenizer(query, return_tensors="pt")
     query_ids, query_mask = tokenized["input_ids"][0], tokenized["attention_mask"][0]
@@ -325,7 +359,6 @@ def search():
 
 @api_routes.route("/search_similar_docs", methods=["POST"])
 def search_similar_docs():
-    auto_unload_models()
     data = request.get_json()
     doc_path = data["doc_path"]
     k = data.get("k", 10)
@@ -344,7 +377,6 @@ def search_similar_docs():
 
 @api_routes.route("/get_doc_text", methods=["GET"])
 def get_doc_text():
-    auto_unload_models()
     doc_path = request.args.get("doc_path")
     doc_text = postgres_manager.get_doc_text(doc_path)
     if doc_text:
@@ -355,7 +387,6 @@ def get_doc_text():
 
 @api_routes.route("/get_ml_synced", methods=["GET"])
 def get_ml_synced():
-    auto_unload_models()
     doc_path = request.args.get("doc_path")
     ml_synced = postgres_manager.get_doc_ml_synced(doc_path)
     if ml_synced:
@@ -366,7 +397,6 @@ def get_ml_synced():
 
 @api_routes.route("/update_ml_synced", methods=["POST"])
 def update_ml_synced():
-    auto_unload_models()
     data = request.get_json()
     doc_path = data.get("doc_path")
     ml_synced = data.get("ml_synced")
@@ -384,7 +414,6 @@ def update_ml_synced():
 
 @api_routes.route("/get_doc_metadata", methods=["GET"])
 def get_doc_metadata():
-    auto_unload_models()
     doc_path = request.args.get("doc_path")
     doc_metadata = postgres_manager.get_doc_metadata(doc_path)
     if doc_metadata:
@@ -395,7 +424,6 @@ def get_doc_metadata():
 
 @api_routes.route("/search_by_metadata", methods=["POST"])
 def search_by_metadata():
-    auto_unload_models()
     data = request.get_json()
     tags = data.get("tags", [])
     path = data.get("path", None)
@@ -410,7 +438,6 @@ def search_by_metadata():
 
 @api_routes.route("/delete_doc", methods=["POST"])
 def delete_doc():
-    auto_unload_models()
     data = request.get_json()
     doc_path = data["doc_path"]
     postgres_manager.delete_doc(doc_path)
@@ -419,7 +446,6 @@ def delete_doc():
 
 @api_routes.route("/upload_file", methods=["POST"])
 def upload_file():
-    auto_unload_models()
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
@@ -436,7 +462,6 @@ def upload_file():
 
 @api_routes.route("/download_file", methods=["GET"])
 def download_file():
-    auto_unload_models()
     doc_path = request.args.get("doc_path")
     if not os.path.isfile(doc_path):
         return jsonify({"error": "File not found"}), 404
@@ -446,7 +471,6 @@ def download_file():
 
 @api_routes.route("/get_doc_tags", methods=["GET"])
 def get_doc_tags():
-    auto_unload_models()
     doc_path = request.args.get("doc_path")
     if not doc_path:
         return jsonify({"error": "Missing 'doc_path' parameter"}), 400
@@ -460,7 +484,6 @@ def get_doc_tags():
 
 @api_routes.route("/update_doc_tags", methods=["POST"])
 def update_doc_tags():
-    auto_unload_models()
     data = request.get_json()
     doc_path = data.get("doc_path")
     new_tags = data.get("tags", [])
@@ -476,7 +499,6 @@ def update_doc_tags():
 
 @api_routes.route("/add_doc_tags", methods=["POST"])
 def add_doc_tags():
-    auto_unload_models()
     data = request.get_json()
     doc_path = data.get("doc_path")
     new_tags = data.get("tags", [])
@@ -497,7 +519,6 @@ def add_doc_tags():
 
 @api_routes.route("/remove_doc_tags", methods=["POST"])
 def remove_doc_tags():
-    auto_unload_models()
     data = request.get_json()
     doc_path = data.get("doc_path")
     tags_to_remove = data.get("tags", [])

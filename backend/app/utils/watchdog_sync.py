@@ -10,29 +10,44 @@ class DocumentWatchdog(FileSystemEventHandler):
     def __init__(self, docs_path):
         self.docs_path = docs_path
         self.queue = Queue()
+        self.processed_files = {}
         self.processing = False
         self.worker_thread = threading.Thread(target=self._process_queue, daemon=True)
         self.worker_thread.start()
+        self.debounce_time = 1  # seconds
 
-    def on_created(self, event):
-        if not event.is_directory and event.src_path.endswith(tuple(config.config["extensions"])):
-            print(f"WATCHDOG: Document {event.src_path} created.")
-            self.process_document(event.src_path)
+    # def on_created(self, event):
+    #     if not event.is_directory and event.src_path.endswith(tuple(config.config["extensions"])):
+    #         print(f"WATCHDOG: Document {event.src_path} created.")
+    #         self.process_document(event.src_path)
 
-    def on_modified(self, event):
-        if not event.is_directory and event.src_path.endswith(tuple(config.config["extensions"])):
-            print(f"WATCHDOG: Document {event.src_path} modified.")
-            self.process_document(event.src_path)
+    # def on_modified(self, event):
+    #     if not event.is_directory and event.src_path.endswith(tuple(config.config["extensions"])):
+    #         print(f"WATCHDOG: Document {event.src_path} modified.")
+    #         self.process_document(event.src_path)
 
-    def on_moved(self, event):
-        if not event.is_directory and event.src_path.endswith(tuple(config.config["extensions"])):
-            print(f"WATCHDOG: Document {event.src_path} moved.")
-            self.process_document(event.src_path)
+    # def on_moved(self, event):
+    #     if not event.is_directory and event.src_path.endswith(tuple(config.config["extensions"])):
+    #         print(f"WATCHDOG: Document {event.src_path} moved.")
+    #         self.process_document(event.src_path)
 
-    def on_deleted(self, event):
+    # def on_deleted(self, event):
+    #     if not event.is_directory and event.src_path.endswith(tuple(config.config["extensions"])):
+    #         print(f"WATCHDOG: Document {event.src_path} deleted.")
+    #         self.delete_document(event.src_path)
+
+    def on_any_event(self, event):
         if not event.is_directory and event.src_path.endswith(tuple(config.config["extensions"])):
-            print(f"WATCHDOG: Document {event.src_path} deleted.")
-            self.delete_document(event.src_path)
+            current_time = time.time()
+
+            if event.event_type == 'deleted':
+                self.delete_document(event.src_path)
+                self.processed_files.pop(event.src_path, None)
+            elif event.event_type in ['created', 'modified', 'moved']:
+                last_processed = self.processed_files.get(event.src_path, 0)
+                if current_time - last_processed >= self.debounce_time:
+                    self.process_document(event.src_path)
+                    self.processed_files[event.src_path] = current_time
 
     def process_document(self, doc_path):
         self.queue.put(doc_path)

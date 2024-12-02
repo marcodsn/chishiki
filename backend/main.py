@@ -35,12 +35,12 @@ def main():
     time.sleep(5)  # Adjust the delay as needed
 
     # Try creating index
-    try:
-        requests.post(
-            f"http://{config.config['backend']['host']}:{config.config['backend']['port']}/create_index"
-        )
-    except Exception as e:
-        print(f"Error creating index: {e}")
+    # try:
+    #     requests.post(
+    #         f"http://{config.config['backend']['host']}:{config.config['backend']['port']}/create_index"
+    #     )
+    # except Exception as e:
+    #     print(f"Error creating index: {e}")
 
     # Perform boot-time sync
     sync_on_boot(docs_path)

@@ -120,6 +120,7 @@ class PostgresManager:
             # Convert UNIX timestamps to datetime objects
             creation_timestamp = datetime.datetime.fromtimestamp(float(creation_time))
             modification_timestamp = datetime.datetime.fromtimestamp(float(modification_time))
+
             with self.conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO document_metadata (
@@ -296,7 +297,9 @@ class PostgresManager:
                 """, (doc_path,))
                 result = cur.fetchone()
                 if result and result[0] is not None:
-                    return np.frombuffer(result[0], dtype=np.float32)
+                    vector_str = result[0][1:-1]  # Remove [ and ]
+                    vector_values = [float(x) for x in vector_str.split(',')]
+                    return np.array(vector_values, dtype=np.float32)
             return None
         except Exception as e:
             logger.error(f"Error getting mean dense vector: {str(e)}")
@@ -305,6 +308,8 @@ class PostgresManager:
     def search_similar_docs(self, mean_dense_vector: np.ndarray, k: int, threshold: float) -> List[Dict]:
         try:
             with self.conn.cursor() as cur:
+                vector_str = '[' + ','.join(map(str, mean_dense_vector.tolist())) + ']'
+
                 cur.execute("""
                     SELECT
                         doc_path,
@@ -315,14 +320,14 @@ class PostgresManager:
                     ORDER BY similarity_score DESC
                     LIMIT %s
                 """, (
-                    mean_dense_vector.astype(np.float32).tobytes(),
-                    mean_dense_vector.astype(np.float32).tobytes(),
+                    vector_str,
+                    vector_str,
                     threshold,
                     k
                 ))
                 results = cur.fetchall()
                 return [
-                    {"doc_path": row[0], "similarity_score": float(row[1])}
+                    {"doc_path": row[0], "similarity_score": float(1 - row[1])}
                     for row in results
                 ]
         except Exception as e:

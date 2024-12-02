@@ -58,7 +58,7 @@ def sync_on_boot(docs_path):
 
         if stored_doc is None:
             docs_to_insert.append(doc_path)
-        elif stored_hash != file_hash or ml_synced == "false":
+        elif stored_hash != file_hash or ml_synced == False:
             docs_to_update.append(doc_path)
         else:
             print(f"Document {doc_path} already exists and is fully indexed.")
@@ -118,13 +118,15 @@ def sync_on_boot(docs_path):
     #     print("Datastore saved successfully.")
     # else:
     #     print(f"Error saving datastore: {response.json()}")
-    try:
-        response = requests.post(
-            f"http://{config.config['backend']['host']}:{config.config['backend']['port']}/save_datastore"
-        )
-        if response.status_code == 200:
-            print("Datastore saved successfully.")
-        else:
-            print(f"Error saving datastore: {response.json()}")
-    except Exception as e:
-        print(f"Error saving datastore: {e}")
+
+    # Redis
+    # try:
+    #     response = requests.post(
+    #         f"http://{config.config['backend']['host']}:{config.config['backend']['port']}/save_datastore"
+    #     )
+    #     if response.status_code == 200:
+    #         print("Datastore saved successfully.")
+    #     else:
+    #         print(f"Error saving datastore: {response.json()}")
+    # except Exception as e:
+    #     print(f"Error saving datastore: {e}")

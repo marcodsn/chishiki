@@ -52,6 +52,5 @@ data/*
 
 # Misc
 output.txt
-show.py
-show.sh
+reader.py
 .aider*

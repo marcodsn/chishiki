@@ -28,7 +28,7 @@ Chishiki is a modern document search engine that combines semantic search capabi
 ## Installation
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/chishiki.git
+git clone https://github.com/marcodsn/chishiki.git
 cd chishiki
 ```
 

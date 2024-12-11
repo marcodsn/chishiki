@@ -1,69 +1,60 @@
-# Chishiki: Advanced Document Search Engine
+# Chishiki Document Search Engine
 
-Chishiki is a sophisticated document search engine built with Python and Redis, leveraging state-of-the-art machine learning models for efficient search and document management. It offers a user-friendly web interface for seamless interaction, allowing users to upload, search, and manage their documents with ease.
+## Overview
+Chishiki is a modern document search engine that combines semantic search capabilities with traditional lexical matching. Built with Next.js, Flask, and PostgreSQL with pgvector, it provides an efficient and user-friendly solution for searching through document collections.
 
-## Key Features
+## Features
+- Semantic search using BGE-M3 embedding model
+- Support for multiple document formats (PDF, TXT, DOCX, etc.)
+- Hybrid search combining dense embeddings and lexical matching, with adjustable weights
+- Document tagging and metadata management
+- Light/Dark mode support
+- Real-time file system synchronization
+- User-friendly web interface
+- Docker support (CPU & GPU versions)
 
-### Multi-Modal Search
-Chishiki combines dense vector search with lexical matching to deliver highly relevant results. It utilizes the BGE-M3 model to generate dense vector representations of text passages, capturing semantic meaning. This approach, coupled with lexical matching, ensures both semantically relevant and lexically accurate search results.
+## Tech Stack
+- **Frontend**: Next.js with [Radix UI](https://www.radix-ui.com/) and [Shadcn](https://ui.shadcn.com/)
+- **Backend**: Flask (Python)
+- **Database**: PostgreSQL with pgvector
+- **Embedding Model**: [BGE-M3](https://huggingface.co/BAAI/bge-m3) from BAAI
+- **Text Extraction**: [docling](https://github.com/DS4SD/docling)
+- **Containerization**: Docker & Docker Compose
 
-### Comprehensive Metadata Search
-Users can refine their searches using document metadata, including tags, file names, paths, and size filters. This granular control allows for precise document retrieval based on specific criteria.
+## Prerequisites
+- Docker and Docker Compose
+- NVIDIA GPU (optional, for GPU acceleration)
 
-### Robust Document Management
-Chishiki provides a full-featured document management system, supporting various file formats (PDF, TXT, WAV, MP3, OGG, MP4). Users can:
-- Upload and organize documents
-- View and edit document metadata
-- Manage document tags
-- Download original files
-- View extracted text content
-- Discover semantically similar documents
-
-### Customizable Search Settings
-Fine-tune your search experience with advanced settings:
-- Adjust window size for text passage analysis
-- Set the number of results to display
-- Balance dense retrieval weight vs. lexical matching
-- Toggle query highlighting in search results
-
-### Intuitive User Interface
-The web UI, built with React and Tailwind CSS, offers a seamless experience for document management and search operations.
-
-### Extensible Architecture
-Chishiki's modular design allows for easy integration of new machine learning models and support for additional document formats.
-
-## Technical Architecture
-
-### Backend
-- Powered by Python and Flask
-- Utilizes Redis for high-performance data storage
-- Integrates advanced ML models:
-  - BGE-M3 for dense vector representations
-  - Nougat for accurate PDF text extraction
-  - Custom ASR model combining Whisper and PyAnnote for audio/video transcription
-
-### Frontend
-- Built with React and Next.js
-- Styled using Tailwind CSS for responsive and efficient design
-
-## Getting Started
-
-### Prerequisites
-- Docker
-- Node.js and npm
-
-### Installation
+## Installation
 1. Clone the repository:
-
 ```bash
-git clone https://github.com/marcodsn/chishiki.git
+git clone https://github.com/yourusername/chishiki.git
 cd chishiki
 ```
 
-2. Start the application using Docker Compose:
-
+2. Start the application:
 ```bash
+# For CPU-based deployment
 docker-compose up -d
+
+# For GPU-accelerated deployment
+docker-compose -f docker-compose.cuda.yml up -d
 ```
 
-3. Access the web UI at `http://localhost:3010`
+## Usage
+1. Access the web interface at `http://localhost:3010`
+2. Upload documents through the file management interface (check notes below)
+3. Use the search bar to perform semantic searches
+4. Manage documents, tags and search settings through the UI
+
+NOTE 1: The first time you start the application, it may take a few minutes to download the BGE-M3 model and set up the database.
+NOTE 2: The upload functionality is currently broken, and documents must be manually placed in the `data` directory.
+
+## License
+This project is not yet licensed, and as such, all rights are reserved at this time.
+A license will be added in the future to clarify the terms of use.
+
+## Acknowledgments
+- [BAAI for the BGE-M3 embedding model](https://huggingface.co/BAAI/bge-m3)
+- [docling](https://github.com/DS4SD/docling) for their great text extraction tool
+- PostgreSQL and pgvector teams for building such amazing tools

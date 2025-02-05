@@ -19,7 +19,7 @@ def extract_text_from_document(file_path, docling_converter=None):
     else:
         return None
 
-def extract_text_from_txt(file_path):
+def extract_text_from_txt(file_path, docling_converter=None):
     with open(file_path, "r") as file:
         text = file.read()
     return text

@@ -1,5 +1,7 @@
 # Chishiki Document Search Engine
 
+![Chishiki webui](./docs/images/webui-dark.png)
+
 ## Overview
 Chishiki is a modern document search engine that combines semantic search capabilities with traditional lexical matching. Built with Next.js, Flask, and PostgreSQL with pgvector, it provides an efficient and user-friendly solution for searching through document collections.
 
